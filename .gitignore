@@ -86,3 +86,14 @@ htmlcov/
 
 # Memory2 autorecord
 recording*.db
+
+# --- G1 scaffolding additions ---
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.zst
+MUJOCO_LOG.TXT
+*.log
+**/chromadb_data/
+**/visual_memory.pkl
