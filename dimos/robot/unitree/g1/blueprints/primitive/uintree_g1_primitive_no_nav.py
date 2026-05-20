@@ -22,16 +22,10 @@ from dimos_lcm.sensor_msgs import CameraInfo
 from dimos.core.coordination.blueprints import autoconnect
 from dimos.core.global_config import global_config
 from dimos.core.transport import LCMTransport
-from dimos.hardware.sensors.camera.module import CameraModule
-from dimos.hardware.sensors.camera.webcam import Webcam
-from dimos.hardware.sensors.camera.zed import compat as zed
 from dimos.mapping.costmapper import CostMapper
 from dimos.mapping.voxels import VoxelGridMapper
 from dimos.msgs.geometry_msgs.PoseStamped import PoseStamped
-from dimos.msgs.geometry_msgs.Quaternion import Quaternion
-from dimos.msgs.geometry_msgs.Transform import Transform
 from dimos.msgs.geometry_msgs.Twist import Twist
-from dimos.msgs.geometry_msgs.Vector3 import Vector3
 from dimos.msgs.nav_msgs.Odometry import Odometry
 from dimos.msgs.nav_msgs.Path import Path
 from dimos.msgs.sensor_msgs.Image import Image
@@ -105,35 +99,9 @@ rerun_config = {
 _with_vis = vis_module(viewer_backend=global_config.viewer, rerun_config=rerun_config)
 
 
-def _create_webcam() -> Webcam:
-    return Webcam(
-        camera_index=0,
-        fps=15,
-        stereo_slice="left",
-        camera_info=zed.CameraInfo.SingleWebcam,
-    )
-
-
-_camera = (
-    autoconnect(
-        CameraModule.blueprint(
-            transform=Transform(
-                translation=Vector3(0.05, 0.0, 0.6),  # height of camera on G1 robot
-                rotation=Quaternion.from_euler(Vector3(0.0, 0.2, 0.0)),
-                frame_id="sensor",
-                child_frame_id="camera_link",
-            ),
-            hardware=_create_webcam,
-        ),
-    )
-    if not global_config.simulation
-    else autoconnect()
-)
-
 uintree_g1_primitive_no_nav = (
     autoconnect(
         _with_vis,
-        _camera,
         VoxelGridMapper.blueprint(),
         CostMapper.blueprint(),
         WavefrontFrontierExplorer.blueprint(),
