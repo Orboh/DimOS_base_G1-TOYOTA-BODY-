@@ -14,11 +14,11 @@
 
 from abc import ABC, abstractmethod
 import time
-from threading import Thread
+from threading import Event, Thread
 from typing import TYPE_CHECKING, Any
 
 from pydantic import Field
-from reactivex.disposable import Disposable
+from reactivex.disposable import Disposable, SerialDisposable
 
 from dimos.constants import DEFAULT_THREAD_JOIN_TIMEOUT
 from dimos.core.coordination.module_coordinator import ModuleCoordinator
@@ -91,6 +91,9 @@ class G1Connection(G1ConnectionBase):
     camera_info: Out[CameraInfo]
     connection: UnitreeWebRTCConnection | None = None
     _camera_info_thread: Thread | None = None
+    _video_subscription_thread: Thread | None = None
+    _video_subscription: SerialDisposable | None = None
+    _stop_event: Event | None = None
 
     @rpc
     def start(self) -> None:
@@ -112,15 +115,26 @@ class G1Connection(G1ConnectionBase):
         self.connection.start()
 
         self.register_disposable(Disposable(self.cmd_vel.subscribe(self.move)))
-        self.register_disposable(
-            self.connection.video_stream().subscribe(self.color_image.publish)
-        )
 
+        self._stop_event = Event()
         self._camera_info_thread = Thread(target=self._publish_camera_info, daemon=True)
         self._camera_info_thread.start()
 
+        self._video_subscription = SerialDisposable()
+        self.register_disposable(self._video_subscription)
+        self._video_subscription_thread = Thread(target=self._subscribe_video_stream, daemon=True)
+        self._video_subscription_thread.start()
+
     @rpc
     def stop(self) -> None:
+        if self._stop_event is not None:
+            self._stop_event.set()
+
+        if self._video_subscription is not None:
+            self._video_subscription.dispose()
+        if self._video_subscription_thread and self._video_subscription_thread.is_alive():
+            self._video_subscription_thread.join(timeout=DEFAULT_THREAD_JOIN_TIMEOUT)
+
         if self._camera_info_thread and self._camera_info_thread.is_alive():
             self._camera_info_thread.join(timeout=DEFAULT_THREAD_JOIN_TIMEOUT)
 
@@ -128,10 +142,40 @@ class G1Connection(G1ConnectionBase):
         self.connection.stop()
         super().stop()
 
+    def _subscribe_video_stream(self) -> None:
+        assert self.connection is not None
+        assert self._video_subscription is not None
+        logger.info("Starting G1 WebRTC video stream subscription")
+
+        frame_count = 0
+
+        def on_image(image: Image) -> None:
+            nonlocal frame_count
+            frame_count += 1
+            if frame_count == 1:
+                logger.info(
+                    "Received first G1 camera frame",
+                    width=image.width,
+                    height=image.height,
+                    encoding=image.encoding,
+                )
+            self.color_image.publish(image)
+
+        def on_error(error: Exception) -> None:
+            logger.error("G1 WebRTC video stream subscription failed", error=repr(error))
+
+        self._video_subscription.disposable = self.connection.video_stream().subscribe(
+            on_image,
+            on_error,
+        )
+        logger.info("G1 WebRTC video stream subscription installed")
+
     def _publish_camera_info(self) -> None:
-        while True:
+        logger.info("Starting G1 camera_info publisher")
+        while self._stop_event is None or not self._stop_event.is_set():
             self.camera_info.publish(_G1_CAMERA_INFO)
             time.sleep(1.0)
+        logger.info("Stopped G1 camera_info publisher")
 
     @rpc
     def move(self, twist: Twist, duration: float = 0.0) -> None:

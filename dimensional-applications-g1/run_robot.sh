@@ -24,4 +24,4 @@ fi
 export ROBOT_IP="$ROBOT_IP_G1"
 export PATH="$SCRIPT_DIR/.venv/bin:$PATH"
 
-exec "$SCRIPT_DIR/.venv/bin/dimos" run unitree-g1-agentic "$@"
+exec "$SCRIPT_DIR/.venv/bin/dimos" --viewer foxglove run unitree-g1-agentic "$@"
