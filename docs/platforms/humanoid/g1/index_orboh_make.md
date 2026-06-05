@@ -120,10 +120,29 @@ uvx --python 3.12 dimos-viewer --connect rerun+http://localhost:9877/proxy --ws-
 2. NX上に最小限の配信プロセス（GStreamer/RTSP か pyrealsense2+LCMの小スクリプト）を置く —
    「G1に何も入れない」方針を緩める場合のみ
 
-`unitree-g1-nav-laptop-cam` 自体はコードとして残す（将来のファームアップやvideohub API判明時用）。
-`G1Connection.enable_video` はデフォルトFalseのまま。
+`G1Connection.enable_video`（WebRTC用）はデフォルトFalseのまま残置。
 補足: `UnitreeWebRTCConnection` はホスト不達時にタイムアウト無しで永久ブロックする
 （connection refusedなら即失敗するので、`.161`へのpingが通る限り起動は固まらない）
+
+## 頭部カメラ（ZMQ / RealSense-on-NX）— ✅ これが動く方法
+
+`Orboh/dimos` の `add-vla` ブランチ（Sotaの検証済み構成）から移植。
+**NX上で配信スクリプトを1本動かす**（pyrealsense2 → JPEG → msgpack → ZMQ `tcp://*:5555`、
+NVIDIA GEAR-SONICスキーマ準拠）。
+
+```bash
+# ① NX側（初回はスクリプト転送が必要な場合あり: scp scripts/realsense_zmq_publisher.py unitree@192.168.123.164:~/）
+ssh unitree@192.168.123.164
+tmux new -s cam -d '~/.venv_cam/bin/python ~/realsense_zmq_publisher.py'
+
+# ② PC側
+dimos run unitree-g1-nav-laptop-cam     # ZMQ_CAMERA_HOST / ZMQ_CAMERA_PORT で上書き可
+```
+
+- PC側の受信は `ZmqCamera` モジュール（`dimos/robot/unitree/g1/camera/zmq_camera_module.py`）→ `/color_image`(LCM)
+- 歩行コマンドはDDS一本のまま（カメラモジュールに制御経路なし）
+- 停止: NXで `tmux kill-session -t cam`
+- ⚠️ PCのwebcamを使う他のスタックと併用するとカメラ混流に注意（FleetSeek exp_01KQEZY97E）
 
 ## 安全上の注意
 
