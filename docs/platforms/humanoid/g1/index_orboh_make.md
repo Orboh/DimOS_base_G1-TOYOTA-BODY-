@@ -98,6 +98,22 @@ uvx --python 3.12 dimos-viewer --connect rerun+http://localhost:9877/proxy --ws-
 | クリックしても歩かない | ロボットがバランス立ちか確認（手順3）。ログの `MovementManager` が `Ignored out-of-range click` を出していないか確認 |
 | viewerクラッシュ | ブループリント内 `vis_throttle=0.5` を 0.3 に下げる |
 
+## オプション: 頭部カメラ（WebRTC）— ⚠️ 実機未検証
+
+`unitree-g1-nav-laptop-cam` は上記スタックに `G1Connection`（WebRTC）をカメラ専用で追加する
+（`cmd_vel` はremapで切断済み — 歩行コマンドはDDS側の一本のみ）。
+
+```bash
+ROBOT_IP=192.168.123.164 dimos run unitree-g1-nav-laptop-cam
+```
+
+- G1のRealSense (USB接続のdepth等) はネットワークに流れないため取得不可。これはUnitreeアプリと同じWebRTC映像
+- **G1のWebRTCサービスが映像トラックを返すかは未検証**。`UnitreeWebRTCConnection` は接続不能時に
+  タイムアウト無しで永久ブロックするため、起動がG1Connectionで止まる場合はWebRTC非対応と判断し
+  `unitree-g1-nav-laptop` に戻ること
+- モジュール側は `G1Connection` の `enable_video`（デフォルトFalse）でオプトイン。既存スタック
+  （`unitree-g1` 等）でWebカメラと映像が混流しないようにするため
+
 ## 安全上の注意
 
 - 最初のクリックは**1〜2m先**、コントローラーを手元に
