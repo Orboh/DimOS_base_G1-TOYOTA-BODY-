@@ -98,21 +98,32 @@ uvx --python 3.12 dimos-viewer --connect rerun+http://localhost:9877/proxy --ws-
 | クリックしても歩かない | ロボットがバランス立ちか確認（手順3）。ログの `MovementManager` が `Ignored out-of-range click` を出していないか確認 |
 | viewerクラッシュ | ブループリント内 `vis_throttle=0.5` を 0.3 に下げる |
 
-## オプション: 頭部カメラ（WebRTC）— ⚠️ 実機未検証
+## 頭部カメラ（WebRTC）— ❌ 検証の結果、現行ファームでは不可（2026-06-05）
 
-`unitree-g1-nav-laptop-cam` は上記スタックに `G1Connection`（WebRTC）をカメラ専用で追加する
-（`cmd_vel` はremapで切断済み — 歩行コマンドはDDS側の一本のみ）。
+`unitree-g1-nav-laptop-cam` で実機検証した結果、**G1備え付けカメラはPC単体では取得できない**：
 
-```bash
-ROBOT_IP=192.168.123.164 dimos run unitree-g1-nav-laptop-cam
-```
+| 確認項目 | 結果 |
+|---|---|
+| WebRTCシグナリング | `.161:8081`（制御ボード、旧方式/offer）で接続成功。**NXの`.164`にはサービス無し** |
+| 接続確立 | ICE/Peer/DataChannel全て🟢 |
+| SDPの映像トラック | `m=video a=sendonly` あり（Go2共通ファームの名残） |
+| **映像データ(RTP)** | **一切流れない**。`track.recv()`直叩きでもタイムアウト |
 
-- G1のRealSense (USB接続のdepth等) はネットワークに流れないため取得不可。これはUnitreeアプリと同じWebRTC映像
-- **G1のWebRTCサービスが映像トラックを返すかは未検証**。`UnitreeWebRTCConnection` は接続不能時に
-  タイムアウト無しで永久ブロックするため、起動がG1Connectionで止まる場合はWebRTC非対応と判断し
-  `unitree-g1-nav-laptop` に戻ること
-- モジュール側は `G1Connection` の `enable_video`（デフォルトFalse）でオプトイン。既存スタック
-  （`unitree-g1` 等）でWebカメラと映像が混流しないようにするため
+**根本原因:** 頭部D435iはNX（`.164`）にUSB接続。WebRTCサービスがいる制御ボード（`.161`）には
+カメラの映像ソースが物理的に存在しない。
+詳細: [FleetSeek exp_01KTBBHAV0QD2RR3XPMZJ8VZNR](https://web-ebon-zeta-33.vercel.app/experience/exp_01KTBBHAV0QD2RR3XPMZJ8VZNR)
+
+**代替手段:**
+1. **USBウェブカメラをPCに挿す**（推奨・ロボット側ゼロ変更）— 上流dimos自身がG1でこの構成
+   （`uintree_g1_primitive_no_nav.py` の `Webcam(camera_index=0)`、コメント "height of camera on G1 robot"）。
+   既にEthernetテザーがあるのでUSBケーブルを並走させてG1頭部にマウントすればよい
+2. NX上に最小限の配信プロセス（GStreamer/RTSP か pyrealsense2+LCMの小スクリプト）を置く —
+   「G1に何も入れない」方針を緩める場合のみ
+
+`unitree-g1-nav-laptop-cam` 自体はコードとして残す（将来のファームアップやvideohub API判明時用）。
+`G1Connection.enable_video` はデフォルトFalseのまま。
+補足: `UnitreeWebRTCConnection` はホスト不達時にタイムアウト無しで永久ブロックする
+（connection refusedなら即失敗するので、`.161`へのpingが通る限り起動は固まらない）
 
 ## 安全上の注意
 
