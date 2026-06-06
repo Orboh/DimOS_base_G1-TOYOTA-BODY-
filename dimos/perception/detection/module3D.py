@@ -58,6 +58,9 @@ class Detection3DModule(Detection2DModule):
     detected_image_1: Out[Image]
     detected_image_2: Out[Image]
 
+    # full frame with every bbox + class label + confidence drawn on it
+    annotated_image: Out[Image]
+
     detection_3d_stream: Observable[ImageDetections3DPC] | None = None
 
     def process_frame(

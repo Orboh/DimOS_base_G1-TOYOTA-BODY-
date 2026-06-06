@@ -52,6 +52,7 @@ unitree_go2_detection = (
             ("detected_image_0", Detection3DModule): LCMTransport("/detector3d/image/0", Image),
             ("detected_image_1", Detection3DModule): LCMTransport("/detector3d/image/1", Image),
             ("detected_image_2", Detection3DModule): LCMTransport("/detector3d/image/2", Image),
+            ("annotated_image", Detection3DModule): LCMTransport("/detector3d/annotated", Image),
         }
     )
 )

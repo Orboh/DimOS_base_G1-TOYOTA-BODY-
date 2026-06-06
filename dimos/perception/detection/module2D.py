@@ -60,6 +60,8 @@ class Detection2DModule(Module):
     detected_image_0: Out[Image]
     detected_image_1: Out[Image]
     detected_image_2: Out[Image]
+    # full frame with every bbox + class label + confidence drawn on it
+    annotated_image: Out[Image]
 
     cnt: int = 0
 
@@ -144,6 +146,9 @@ class Detection2DModule(Module):
 
         if self.config.publish_detection_images:
             self.detection_stream_2d().subscribe(publish_cropped_images)
+            self.detection_stream_2d().subscribe(
+                lambda det: self.annotated_image.publish(det.annotated_image())
+            )
 
     @rpc
     def stop(self) -> None:
