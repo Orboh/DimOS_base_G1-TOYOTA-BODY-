@@ -144,6 +144,9 @@ def build_nav_laptop(rerun_blueprint: Callable[[], Any] | None = None) -> Any:
     )
 
 
-unitree_g1_nav_laptop = build_nav_laptop()
+# Wrapped in autoconnect() so the registry generator's AST scan
+# (test_all_blueprints_generation.py) recognizes this as a blueprint —
+# a bare build_nav_laptop() call would be dropped from all_blueprints.py.
+unitree_g1_nav_laptop = autoconnect(build_nav_laptop())
 
 __all__ = ["build_nav_laptop", "unitree_g1_nav_laptop"]
