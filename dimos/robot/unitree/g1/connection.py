@@ -21,9 +21,8 @@ from reactivex.disposable import Disposable
 from dimos.core.coordination.module_coordinator import ModuleCoordinator
 from dimos.core.core import rpc
 from dimos.core.module import Module, ModuleConfig
-from dimos.core.stream import In, Out
+from dimos.core.stream import In
 from dimos.msgs.geometry_msgs.Twist import Twist
-from dimos.msgs.sensor_msgs.Image import Image
 from dimos.robot.unitree.connection import UnitreeWebRTCConnection
 from dimos.spec.control import LocalPlanner
 from dimos.utils.logging_config import setup_logger
@@ -37,10 +36,6 @@ logger = setup_logger()
 class G1Config(ModuleConfig):
     ip: str = Field(default_factory=lambda m: m["g"].robot_ip)
     connection_type: str = Field(default_factory=lambda m: m["g"].unitree_connection_type)
-    # Opt-in: publish the WebRTC head-camera feed on color_image. Off by
-    # default so stacks that already run a CameraModule (e.g. unitree-g1)
-    # don't get two producers mixed into the same color_image topic.
-    enable_video: bool = False
 
 
 class G1ConnectionBase(Module, ABC):
@@ -75,7 +70,6 @@ class G1ConnectionBase(Module, ABC):
 class G1Connection(G1ConnectionBase):
     config: G1Config
     cmd_vel: In[Twist]
-    color_image: Out[Image]
     connection: UnitreeWebRTCConnection | None = None
 
     @rpc
@@ -98,14 +92,6 @@ class G1Connection(G1ConnectionBase):
         self.connection.start()
 
         self.register_disposable(Disposable(self.cmd_vel.subscribe(self.move)))
-
-        # Publish the WebRTC video feed (head camera), mirroring GO2Connection.
-        # Stream._transport is the only way to check if a port is wired;
-        # skip the video channel entirely when no blueprint consumes it.
-        if self.config.enable_video and self.color_image._transport is not None:
-            self.register_disposable(
-                self.connection.video_stream().subscribe(self.color_image.publish)
-            )
 
     @rpc
     def stop(self) -> None:

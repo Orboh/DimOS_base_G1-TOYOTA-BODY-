@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>上司説明用 自分メモ</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+      background: #f4f6f9;
+      color: #2d2d2d;
+      line-height: 1.7;
+      padding: 24px 16px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 1.5rem;
+      color: #1a1a2e;
+      margin-bottom: 4px;
+    }
+
+    .subtitle {
+      text-align: center;
+      font-size: 0.85rem;
+      color: #888;
+      margin-bottom: 28px;
+    }
+
+    /* ---- 最初の一言 ---- */
+    .opener {
+      background: #1a1a2e;
+      color: #fff;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 28px;
+      text-align: center;
+    }
+    .opener .label {
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      color: #aab4c8;
+      margin-bottom: 8px;
+    }
+    .opener .message {
+      font-size: 1.15rem;
+      font-weight: bold;
+      line-height: 1.6;
+    }
+
+    /* ---- Q&A カード ---- */
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    }
+
+    .card .question {
+      font-size: 0.8rem;
+      font-weight: bold;
+      letter-spacing: 0.05em;
+      color: #5a6ea0;
+      margin-bottom: 6px;
+    }
+
+    .card h2 {
+      font-size: 1.05rem;
+      color: #1a1a2e;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e8ecf4;
+    }
+
+    .card p { margin-bottom: 10px; font-size: 0.95rem; }
+    .card p:last-child { margin-bottom: 0; }
+
+    .card ul {
+      padding-left: 1.4em;
+      margin-bottom: 10px;
+      font-size: 0.95rem;
+    }
+    .card ul li { margin-bottom: 4px; }
+
+    /* ---- 答えのハイライト ---- */
+    .answer-box {
+      background: #eef2ff;
+      border-left: 4px solid #4a6cf7;
+      border-radius: 0 8px 8px 0;
+      padding: 12px 16px;
+      margin: 10px 0 14px;
+      font-weight: bold;
+      font-size: 0.95rem;
+      color: #1a1a2e;
+    }
+
+    /* ---- サブセクション ---- */
+    .subsection {
+      margin-top: 16px;
+    }
+    .subsection-title {
+      font-size: 0.85rem;
+      font-weight: bold;
+      color: #5a6ea0;
+      background: #f0f3fb;
+      padding: 4px 10px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-bottom: 8px;
+    }
+
+    /* ---- フロー図 ---- */
+    .flow {
+      margin: 12px 0;
+    }
+    .flow-step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      margin-bottom: 4px;
+      font-size: 0.9rem;
+      background: #f8f9fc;
+    }
+    .flow-step.done {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    .flow-step.stuck {
+      background: #fff3e0;
+      color: #e65100;
+      font-weight: bold;
+    }
+    .flow-num {
+      font-weight: bold;
+      font-size: 0.85rem;
+      min-width: 24px;
+      text-align: center;
+    }
+    .flow-arrow {
+      text-align: center;
+      color: #bbb;
+      font-size: 1.1rem;
+      margin: 0 0 4px 16px;
+    }
+
+    /* ---- バッジ ---- */
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: bold;
+      padding: 2px 8px;
+      border-radius: 20px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .badge-ok { background: #e8f5e9; color: #2e7d32; }
+    .badge-wip { background: #fff3e0; color: #e65100; }
+
+    /* ---- 表 ---- */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      margin: 10px 0;
+    }
+    th {
+      background: #f0f3fb;
+      padding: 8px 10px;
+      text-align: left;
+      font-weight: bold;
+      color: #3a4a7a;
+    }
+    td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #eee;
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+
+    /* ---- 困ったときのカード ---- */
+    .lifeline {
+      background: linear-gradient(135deg, #1a1a2e 0%, #3a4a7a 100%);
+      color: #fff;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-top: 8px;
+      text-align: center;
+    }
+    .lifeline .label {
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      color: #aab4c8;
+      margin-bottom: 10px;
+    }
+    .lifeline .message {
+      font-size: 1rem;
+      line-height: 1.7;
+    }
+
+    .note {
+      font-size: 0.82rem;
+      color: #888;
+      font-style: italic;
+      margin-top: 6px;
+    }
+
+    hr { border: none; border-top: 1px solid #e8ecf4; margin: 8px 0 14px; }
+  </style>
+</head>
+<body>
+
+  <h1>上司説明用 自分メモ</h1>
+  <p class="subtitle">今日初めてDimOSを触った自分が、上司にわかりやすく説明するための手引き</p>
+
+  <!-- 最初の一言 -->
+  <div class="opener">
+    <div class="label">▶ まず最初に言う一言</div>
+    <div class="message">「G1のカメラとLiDARが使えなかった問題の原因がわかって、<br>LiDARは今日動くようになりました。カメラはあと一歩です。」</div>
+  </div>
+
+  <!-- Q1 そもそも何をやってるの？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「そもそも何をやってるの？」と聞かれたら</h2>
+    <p>G1ロボットを「<strong>言葉で操作できるロボット</strong>」にするために、DimOSというソフトをG1に繋いで動かしています。</p>
+    <div class="answer-box">「前に歩いて」と話しかける → DimOSがAIで解釈 → G1が動く</div>
+    <p>この仕組みを動かすとき、<strong>カメラ映像</strong>と<strong>LiDAR（周囲の3D地図）</strong>が必要なのですが、それが表示されない状態でした。</p>
+  </div>
+
+  <!-- Q2 なんで使えなかったの？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「なんで使えなかったの？」と聞かれたら</h2>
+
+    <div class="subsection">
+      <span class="subsection-title">カメラの場合</span>
+      <div class="answer-box">「G1のカメラを使う設定になっていなかった」</div>
+      <p>DimOSのG1用コードが、G1本体のカメラではなく<strong>PCに繋いだWebカメラ</strong>を使おうとしていました。でもこのPCにWebカメラがないので、毎回エラーになっていました。</p>
+      <p>同じDimOSのGo2用コードにはG1本体カメラを使う実装があったのに、<strong>G1用には実装されていなかった</strong>、というコードの未完成が原因です。</p>
+    </div>
+
+    <hr>
+
+    <div class="subsection">
+      <span class="subsection-title">LiDARの場合</span>
+      <div class="answer-box">「動かすために必要なものが環境に揃っていなかった」</div>
+      <p>LiDARのデータをリアルタイムで処理するには「<strong>FastLIO</strong>」というプログラムが必要です。ただし：</p>
+      <ul>
+        <li>FastLIOを動かすためのPythonパッケージが入っていなかった</li>
+        <li>FastLIO本体のプログラムがビルドされていなかった</li>
+        <li>ビルドに必要なツール（Nix）もインストールされていなかった</li>
+      </ul>
+      <p>ひとつひとつ揃えていったら動くようになりました。</p>
+    </div>
+  </div>
+
+  <!-- Q3 何をしたの？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「何をしたの？」と聞かれたら</h2>
+
+    <div class="subsection">
+      <span class="subsection-title">カメラ</span>
+      <ul>
+        <li>G1の接続コードに「G1本体のカメラ映像をDimOSに流す」処理を追加した</li>
+        <li>PCのWebカメラを使おうとしていた不要なコードを削除した</li>
+      </ul>
+    </div>
+
+    <div class="subsection">
+      <span class="subsection-title">LiDAR</span>
+      <ul>
+        <li>足りないPythonパッケージをインストールした</li>
+        <li>FastLIOをビルドした（30分くらいかかった）</li>
+        <li>LiDARの動作確認用の小さなプログラムを作って、データが流れることを確認した</li>
+        <li>確認できたので、本番用のDimOS設定に組み込んだ</li>
+      </ul>
+    </div>
+
+    <div class="subsection">
+      <span class="subsection-title">おまけ（SpatialMemory）</span>
+      <ul>
+        <li>DimOSが起動時にダウンロードしようとしていたAIモデルファイルがサーバーにない（404）状態だったので、別の入手経路（HuggingFace）から取得して配置した</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Q4 LiDARは動いてる？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「LiDARは動いてる？」と聞かれたら <span class="badge badge-ok">確認済み ✅</span></h2>
+    <div class="answer-box">「はい、動いています。画面にも3Dの点群が表示されています。」</div>
+    <p class="note">（実施画面のスクショを見せる）</p>
+
+    <table>
+      <tr><th>取得できているデータ</th><th>取得頻度</th></tr>
+      <tr><td>周囲の点群（生データ）</td><td>約 3〜4回/秒</td></tr>
+      <tr><td>累積された環境地図</td><td>約 3〜4回/秒</td></tr>
+      <tr><td>自己位置（ロボットが今どこにいるか）</td><td>約 10回/秒</td></tr>
+    </table>
+  </div>
+
+  <!-- Q5 カメラはどうなの？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「カメラはどうなの？」と聞かれたら <span class="badge badge-wip">確認中 🔄</span></h2>
+    <div class="answer-box">「コードの修正はできました。ただ、実際に映像が流れるかの確認が、もう一つの問題（WebRTC）の解決後になります。」</div>
+  </div>
+
+  <!-- Q6 WebRTCって何？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「WebRTCって何？」と聞かれたら</h2>
+    <div class="answer-box">G1とPCが通信するプロトコルの名前です。<br>Zoomのビデオ通話と同じ仕組みを使っています。</div>
+
+    <p>WebRTC接続はこういう流れで行われます：</p>
+    <div class="flow">
+      <div class="flow-step done">
+        <span class="flow-num">①</span>
+        <span>PCが「繋ぎたい」とG1に伝える</span>
+      </div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-step done">
+        <span class="flow-num">②</span>
+        <span>G1が「わかった、こう繋いで」と返事する ← <strong>ここまでは今日確認できた</strong></span>
+      </div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-step stuck">
+        <span class="flow-num">③</span>
+        <span>実際の通信経路を確立する</span>
+      </div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-step stuck">
+        <span class="flow-num">④</span>
+        <span>最終的な認証をする ← <strong>ここで止まっている（調査中）</strong></span>
+      </div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-step">
+        <span class="flow-num">⑤</span>
+        <span>接続完了</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q7 他に何か見つかったの？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「他に何か見つかったの？」と聞かれたら</h2>
+    <p>通信ライブラリのバグを2つ見つけて直しました。</p>
+    <table>
+      <tr><th>バグ</th><th>内容</th></tr>
+      <tr>
+        <td><strong>バグ1</strong></td>
+        <td>「自分のIPアドレスをG1に伝えずに接続しようとしていた」問題。これのせいでG1側がタイムアウトして繋がらなかった。</td>
+      </tr>
+      <tr>
+        <td><strong>バグ2</strong></td>
+        <td>G1からの応答を5秒しか待たない設定になっていたが、実際には接続に5秒以上かかるため、毎回タイムアウトしていた。</td>
+      </tr>
+    </table>
+    <p style="margin-top:10px;">これはG1だけでなくGo2にも影響する可能性があるので、ライブラリの開発元に報告するか検討中です。</p>
+  </div>
+
+  <!-- Q8 次は何するの？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「次は何するの？」と聞かれたら</h2>
+    <table>
+      <tr><th>#</th><th>やること</th><th>時期</th></tr>
+      <tr><td>1</td><td>WebRTC接続の問題を解消する</td><td>次回</td></tr>
+      <tr><td>2</td><td>カメラ映像が実際に流れるか確認する</td><td>WebRTC解決後</td></tr>
+      <tr><td>3</td><td>カメラとLiDARが両方動いたら「言葉でG1を歩かせる」デモができる</td><td>その後</td></tr>
+    </table>
+  </div>
+
+  <!-- 困ったときの一言 -->
+  <div class="lifeline">
+    <div class="label">🆘 困ったときの一言</div>
+    <div class="message">「LiDARは今日動くようになったので、これでロボットが地図を作りながら歩き回れるようになりました。カメラはあと一歩で、次回には揃う見込みです。」</div>
+  </div>
+
+</body>
+</html>
