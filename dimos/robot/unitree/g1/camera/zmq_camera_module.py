@@ -27,6 +27,8 @@ GEAR-SONIC ZMQ transport from the Orboh add-vla branch:
 from __future__ import annotations
 
 import os
+import threading
+import time
 
 from pydantic import Field
 
@@ -38,6 +40,9 @@ from dimos.robot.unitree.g1.camera.zmq_image_source import ZmqCameraConfig, ZmqI
 from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger()
+
+# How often to report receive stats / warn about a silent publisher. [s]
+STATS_INTERVAL_S = 5.0
 
 
 class ZmqCameraModuleConfig(ModuleConfig):
@@ -53,6 +58,9 @@ class ZmqCamera(Module):
     color_image: Out[Image]
 
     _source: ZmqImageSource | None = None
+    _frame_count: int = 0
+    _monitor_thread: threading.Thread | None = None
+    _monitor_stop: threading.Event | None = None
 
     @rpc
     def start(self) -> None:
@@ -65,17 +73,55 @@ class ZmqCamera(Module):
             )
         )
         self._source.start()
-        self.register_disposable(
-            self._source.video_stream().subscribe(self.color_image.publish)
+        self._frame_count = 0
+        self.register_disposable(self._source.video_stream().subscribe(self._on_frame))
+        self._monitor_stop = threading.Event()
+        self._monitor_thread = threading.Thread(
+            target=self._monitor, daemon=True, name="zmq-cam-monitor"
         )
+        self._monitor_thread.start()
         logger.info(
             "ZmqCamera started",
             endpoint=f"tcp://{self.config.host}:{self.config.port}",
             topic=self.config.topic,
         )
 
+    def _on_frame(self, image: Image) -> None:
+        self._frame_count += 1
+        if self._frame_count == 1:
+            logger.info(
+                "ZmqCamera first frame received — publishing on color_image",
+                size=f"{image.width}x{image.height}",
+            )
+        self.color_image.publish(image)
+
+    def _monitor(self) -> None:
+        """Report receive rate periodically; warn when the publisher is silent."""
+        assert self._monitor_stop is not None
+        last_count = 0
+        while not self._monitor_stop.wait(STATS_INTERVAL_S):
+            received = self._frame_count - last_count
+            last_count = self._frame_count
+            if received == 0:
+                logger.warning(
+                    "ZmqCamera: NO frames received — is the NX publisher running?",
+                    endpoint=f"tcp://{self.config.host}:{self.config.port}",
+                    hint="on the NX: nohup setsid python3 ~/uvc_zmq_publisher.py &",
+                )
+            else:
+                logger.info(
+                    "ZmqCamera receiving",
+                    fps=round(received / STATS_INTERVAL_S, 1),
+                    total=self._frame_count,
+                )
+
     @rpc
     def stop(self) -> None:
+        if self._monitor_stop is not None:
+            self._monitor_stop.set()
+        if self._monitor_thread is not None:
+            self._monitor_thread.join(timeout=2.0)
+            self._monitor_thread = None
         if self._source is not None:
             self._source.stop()
             self._source = None
