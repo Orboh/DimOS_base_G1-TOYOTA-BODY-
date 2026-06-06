@@ -1,0 +1,23 @@
+# systemd unit for the G1 head-camera ZMQ publisher (runs on the NX).
+#
+# Install (from the laptop): scripts/install_nx_cam_service.sh
+# Logs:   journalctl -u g1-cam-publisher -f
+# Stop:   sudo systemctl stop g1-cam-publisher
+#
+# Restart=always doubles as the camera-wait loop: if the D435i has not
+# enumerated yet at boot (publisher exits with "cannot open /dev/video4"),
+# systemd retries every 3 s until it comes up.
+
+[Unit]
+Description=G1 head camera ZMQ publisher (D435i -> tcp://*:5555, ego_view)
+After=multi-user.target
+
+[Service]
+Type=simple
+User=unitree
+ExecStart=/usr/bin/python3 /home/unitree/uvc_zmq_publisher.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
