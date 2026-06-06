@@ -37,8 +37,7 @@ import zmq
 from reactivex import Observable
 from reactivex.subject import Subject
 
-from dimos.msgs.sensor_msgs import Image
-from dimos.msgs.sensor_msgs.Image import ImageFormat
+from dimos.msgs.sensor_msgs.Image import Image, ImageFormat
 
 
 @dataclass
