@@ -304,6 +304,25 @@ if __name__ == "__main__":
 
 <img src="assets/readme/dimos_demo.gif" alt="DimOS Demo" width="100%">
 
+## G1 初期セットアップ（Orboh — 新しい個体・NX再フラッシュ後は必須）
+
+> ⚠️ **G1の頭部カメラ配信は、ロボットのオンボードコンピュータ（NX, `192.168.123.164`）への
+> ワンタイムセットアップが必要です。** 新しいG1個体を触るとき、またはNXが再フラッシュされた後は、
+> SSH鍵・カメラ配信サービスがすべて消えているため、以下を一度実行してください：
+
+```bash
+# ラップトップから1コマンド（NXのパスワードを聞かれる。デフォルト: 123）
+scripts/install_nx_cam_service.sh
+```
+
+これで `g1-cam-publisher` がsystemdサービスとして登録され、**以後はG1の電源を入れるだけで
+頭部カメラ（D435i → ZMQ `tcp://*:5555`）が自動配信されます**（実機で再起動2回検証済み 2026-06-06）。
+
+- 動作確認: `dimos run unitree-g1-nav-laptop-cam` → Rerun viewerのCameraパネルに映像
+- NX側ログ: `ssh unitree@192.168.123.164 journalctl -u g1-cam-publisher -f`
+- 詳細・トラブルシュート: `docs/platforms/humanoid/g1/index_orboh_make.md`
+- 任意（SSH快適化）: `ssh-copy-id -i ~/.ssh/id_ed25519_g1.pub unitree@192.168.123.164`
+
 ## Seat-Finder Demo (Hackathon — Go2)
 
 Continuously detects empty seats (chair / couch / bench) with YOLO and navigates the Go2 to one.
