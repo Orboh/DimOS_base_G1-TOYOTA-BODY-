@@ -124,25 +124,44 @@ uvx --python 3.12 dimos-viewer --connect rerun+http://localhost:9877/proxy --ws-
 補足: `UnitreeWebRTCConnection` はホスト不達時にタイムアウト無しで永久ブロックする
 （connection refusedなら即失敗するので、`.161`へのpingが通る限り起動は固まらない）
 
-## 頭部カメラ（ZMQ / RealSense-on-NX）— ✅ これが動く方法
+## 頭部カメラ（ZMQ / UVC-on-NX）— ✅ これが動く方法（2026-06-06実機検証済み）
 
-`Orboh/dimos` の `add-vla` ブランチ（Sotaの検証済み構成）から移植。
-**NX上で配信スクリプトを1本動かす**（pyrealsense2 → JPEG → msgpack → ZMQ `tcp://*:5555`、
-NVIDIA GEAR-SONICスキーマ準拠）。
+**NX上で配信スクリプトを1本動かす**（cv2/V4L2 `/dev/video4` → JPEG → msgpack → ZMQ `tcp://*:5555`、
+NVIDIA GEAR-SONICスキーマ準拠）。スクリプトは `scripts/uvc_zmq_publisher.py`。
+
+> ⚠️ 旧手順（`realsense_zmq_publisher.py` + `~/.venv_cam` + tmux）は現NXでは動かない：
+> pyrealsense2 は librealsense2.so.2.56 欠落でimport不可、venvは存在せず、NXにtmuxも無い。
+> cv2版はNXのシステムpython3（cv2/pyzmq/umsgpack同梱）でpipインストール不要。
+
+### セットアップ（初回のみ・電源ONで自動起動になる）
 
 ```bash
-# ① NX側（初回はスクリプト転送が必要な場合あり: scp scripts/realsense_zmq_publisher.py unitree@192.168.123.164:~/）
-ssh unitree@192.168.123.164
-tmux new -s cam -d '~/.venv_cam/bin/python ~/realsense_zmq_publisher.py'
+# ラップトップから1コマンド（NXのパスワードを2回聞かれる: ssh/sudo）
+scripts/install_nx_cam_service.sh
+```
 
-# ② PC側
+systemdサービス `g1-cam-publisher` として登録され、以後はG1の電源を入れるだけで配信が始まる。
+D435iの認識前に起動しても `Restart=always` が3秒ごとに再試行する。
+
+```bash
+# PC側
 dimos run unitree-g1-nav-laptop-cam     # ZMQ_CAMERA_HOST / ZMQ_CAMERA_PORT で上書き可
 ```
 
-- PC側の受信は `ZmqCamera` モジュール（`dimos/robot/unitree/g1/camera/zmq_camera_module.py`）→ `/color_image`(LCM)
+### 運用コマンド（NX上）
+
+```bash
+journalctl -u g1-cam-publisher -f       # ログ確認（送信fpsが5秒ごとに出る）
+sudo systemctl restart g1-cam-publisher # 再起動
+sudo systemctl stop g1-cam-publisher    # 停止
+```
+
+- PC側の受信は `ZmqCamera` モジュール（`dimos/robot/unitree/g1/camera/zmq_camera_module.py`）→ `/color_image`(LCM)。
+  受信状況は起動ログに自己申告される（first frame / 5秒ごとfps / 無受信警告）
+- 購読はZMQ CONFLATE（最新フレームのみ保持）— 遅い購読者でも映像遅延が蓄積しない（実機検証: 蓄積+7.96s/12s → ±0）
 - 歩行コマンドはDDS一本のまま（カメラモジュールに制御経路なし）
-- 停止: NXで `tmux kill-session -t cam`
 - ⚠️ PCのwebcamを使う他のスタックと併用するとカメラ混流に注意（FleetSeek exp_01KQEZY97E）
+- カメラ全経路のデバッグ記録: FleetSeek exp_01KTDF72WF4R211XYK1AW9VGNT
 
 ## 安全上の注意
 
