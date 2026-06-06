@@ -46,6 +46,11 @@ class ZmqCameraConfig:
     port: int = 5555
     topic: str = "ego_view"
     recv_timeout_ms: int = 1000
+    # Keep only the newest frame in the receive queue (ZMQ_CONFLATE). A live
+    # camera consumer never wants a backlog: without this, a consumer slower
+    # than the publisher accumulates stale frames and the view lags behind
+    # reality by an unbounded amount.
+    conflate: bool = True
 
 
 class ZmqImageSource:
@@ -65,6 +70,9 @@ class ZmqImageSource:
             return
         self._ctx = zmq.Context.instance()
         self._socket = self._ctx.socket(zmq.SUB)
+        if self.config.conflate:
+            # Must be set BEFORE connect to take effect.
+            self._socket.setsockopt(zmq.CONFLATE, 1)
         endpoint = f"tcp://{self.config.host}:{self.config.port}"
         self._socket.connect(endpoint)
         self._socket.setsockopt(zmq.SUBSCRIBE, b"")
