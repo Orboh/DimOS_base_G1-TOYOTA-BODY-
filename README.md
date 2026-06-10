@@ -304,6 +304,91 @@ if __name__ == "__main__":
 
 <img src="assets/readme/dimos_demo.gif" alt="DimOS Demo" width="100%">
 
+## G1 初期セットアップ（Orboh — 新しい個体・NX再フラッシュ後は必須）
+
+> ⚠️ **G1の頭部カメラ配信は、ロボットのオンボードコンピュータ（NX, `192.168.123.164`）への
+> ワンタイムセットアップが必要です。** 新しいG1個体を触るとき、またはNXが再フラッシュされた後は、
+> SSH鍵・カメラ配信サービスがすべて消えているため、以下を一度実行してください：
+
+```bash
+# ラップトップから1コマンド（NXのパスワードを聞かれる。デフォルト: 123）
+scripts/install_nx_cam_service.sh
+```
+
+これで `g1-cam-publisher` がsystemdサービスとして登録され、**以後はG1の電源を入れるだけで
+頭部カメラ（D435i → ZMQ `tcp://*:5555`）が自動配信されます**（実機で再起動2回検証済み 2026-06-06）。
+
+- 動作確認: `dimos run unitree-g1-nav-laptop-cam` → Rerun viewerのCameraパネルに映像
+- NX側ログ: `ssh unitree@192.168.123.164 journalctl -u g1-cam-publisher -f`
+- 詳細・トラブルシュート: `docs/platforms/humanoid/g1/index_orboh_make.md`
+- 任意（SSH快適化）: `ssh-copy-id -i ~/.ssh/id_ed25519_g1.pub unitree@192.168.123.164`
+
+## Seat-Finder Demo (Hackathon — Go2)
+
+Continuously detects empty seats (chair / couch / bench) with YOLO and navigates the Go2 to one.
+A seat is considered occupied when a person bounding box overlaps the seat box by more than `OCCUPANCY_OVERLAP = 0.2` (IoU fraction).
+
+### Files added
+
+| File | Purpose |
+|------|---------|
+| `dimos/agents/skills/seat_finder.py` | Continuous skill — scans in place, publishes `cmd_vel` and `goal_request` when an empty seat is found |
+| `dimos/agents/skills/seat_planner.py` | On-demand variant — no `cmd_vel`; projects chosen 2D detection to a 3D `PoseStamped` on `goal_request` |
+| `dimos/robot/unitree/go2/blueprints/agentic/unitree_go2_guide.py` | "Guide-dog" blueprint — leads a leashed person to an empty seat via voice I/O + SeatFinder + nav stack |
+| `unitree_go2_seat_demo.py` (+ `_record`, `_reuse`) | Manual-map → on-demand seat-find blueprints wired to SeatPlanner via McpServer |
+| `seat_check_webcam.py` | Standalone webcam test — no robot required |
+| `seat_finder_debug/` | 39 debug capture JPGs from development |
+
+### Key parameters
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| `SEAT_CLASSES` | `("chair", "couch", "bench")` | YOLO class names matched against detections |
+| `SCAN_YAW_RATE` | `0.5 rad/s` | In-place rotation speed during scan |
+| `SCAN_TICK` | `0.1 s` | Control loop interval |
+| `SCAN_DURATION` | ~14 s | Full 360-degree scan time at the above rate |
+| `OCCUPANCY_OVERLAP` | `0.2` | Minimum person-box / seat-box overlap fraction to mark a seat as occupied |
+
+### Demo flows
+
+**A. Webcam only (no robot)**
+
+```bash
+.venv/bin/python seat_check_webcam.py
+# Optional: .venv/bin/python seat_check_webcam.py --camera 1
+```
+
+Overlay: green = empty seat, red = occupied seat, blue = person, gray = other detection.
+
+**B. Manual-map then on-demand seat find on Go2**
+
+```bash
+# Terminal 1 — launch the blueprint (choose one)
+export ROBOT_IP=<YOUR_ROBOT_IP>
+dimos run unitree-go2-seat-demo          # basic
+dimos run unitree-go2-seat-demo-record   # record the mapping pass
+dimos run unitree-go2-seat-demo-reuse    # replay a recorded map
+```
+
+1. Drive the Go2 manually (click-to-goal in Rerun, or keyboard teleop) to build the voxel map and bring seats into camera view.
+2. Trigger seat navigation from a second terminal:
+
+```bash
+# Terminal 2
+dimos mcp call find_empty_seat_now
+```
+
+SeatPlanner selects an empty seat visible in the current frame, projects it to a 3D `PoseStamped`, and publishes to `goal_request`. The nav stack plans an A* path; MovementManager walks the robot to the goal.
+
+**C. Guide-dog mode**
+
+```bash
+export ROBOT_IP=<YOUR_ROBOT_IP>
+dimos run unitree-go2-guide
+```
+
+The agent listens for voice commands and autonomously leads a leashed person to an empty seat using SeatFinder + the full nav stack. SecurityModule, SpatialMemory, PerceiveLoopSkill, and PersonFollowSkill are intentionally excluded to keep the blueprint minimal.
+
 # Development
 
 ## Develop on DimOS

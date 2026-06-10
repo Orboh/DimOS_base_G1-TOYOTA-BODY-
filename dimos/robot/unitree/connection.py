@@ -49,9 +49,12 @@ from dimos.robot.unitree.type.lowstate import LowStateMsg
 from dimos.robot.unitree.type.odometry import Odometry
 from dimos.types.timestamped import Timestamped
 from dimos.utils.decorators.decorators import simple_mcache
+from dimos.utils.logging_config import setup_logger
 from dimos.utils.reactive import backpressure, callback_to_observable
 
 VideoMessage: TypeAlias = NDArray[np.uint8]  # Shape: (height, width, 3)
+
+logger = setup_logger()
 
 
 _T = TypeVar("_T", bound=Timestamped)
@@ -376,29 +379,101 @@ class UnitreeWebRTCConnection(Resource):
         stop_event = threading.Event()
 
         from aiortc import MediaStreamTrack
+        from aiortc.mediastreams import MediaStreamError
+
+        active_tracks: set[int] = set()
 
         async def accept_track(track: MediaStreamTrack) -> None:
+            frame_count = 0
+            logger.info(
+                "Unitree WebRTC video track accepted",
+                kind=track.kind,
+                ready_state=track.readyState,
+            )
             while True:
                 if stop_event.is_set():
+                    logger.info(
+                        "Unitree WebRTC video track stopping",
+                        frames=frame_count,
+                    )
                     return
-                frame = await track.recv()
+                try:
+                    frame = await track.recv()
+                except MediaStreamError as error:
+                    logger.warning(
+                        "Unitree WebRTC video track ended",
+                        frames=frame_count,
+                        error=repr(error),
+                    )
+                    subject.on_completed()
+                    return
+                except Exception as error:
+                    logger.error(
+                        "Unitree WebRTC video track failed",
+                        frames=frame_count,
+                        error=repr(error),
+                    )
+                    subject.on_error(error)
+                    return
+
+                frame_count += 1
+                if frame_count == 1:
+                    logger.info(
+                        "Unitree WebRTC first video frame received",
+                        width=frame.width,
+                        height=frame.height,
+                        format=frame.format.name if frame.format else None,
+                    )
                 serializable_frame = SerializableVideoFrame.from_av_frame(frame)  # type: ignore[no-untyped-call]
                 subject.on_next(serializable_frame)
 
-        self.conn.video.add_track_callback(accept_track)
+        def start_track_reader(track: MediaStreamTrack) -> None:
+            track_id = id(track)
+            if track_id in active_tracks:
+                return
+            active_tracks.add(track_id)
+            future = asyncio.run_coroutine_threadsafe(accept_track(track), self.loop)
+
+            def on_done(done_future: asyncio.Future[None]) -> None:
+                active_tracks.discard(track_id)
+                try:
+                    done_future.result()
+                except Exception as error:
+                    logger.error(
+                        "Unitree WebRTC video reader task failed",
+                        error=repr(error),
+                    )
+                    subject.on_error(error)
+
+            future.add_done_callback(on_done)
+
+        async def on_track_available(track: MediaStreamTrack) -> None:
+            start_track_reader(track)
+
+        self.conn.video.add_track_callback(on_track_available)
+
+        pc = self.conn.pc
+        if pc is not None:
+            for receiver in pc.getReceivers():
+                track = receiver.track
+                if track is not None and track.kind == "video":
+                    start_track_reader(track)
 
         # Run the video channel switching in the background thread
         def switch_video_channel() -> None:
+            logger.info("Switching Unitree WebRTC video channel on")
             self.conn.video.switchVideoChannel(True)
 
         self.loop.call_soon_threadsafe(switch_video_channel)
 
         def stop() -> None:
             stop_event.set()  # Signal the loop to stop
-            self.conn.video.track_callbacks.remove(accept_track)
+            if on_track_available in self.conn.video.track_callbacks:
+                self.conn.video.track_callbacks.remove(on_track_available)
 
             # Run the video channel switching off in the background thread
             def switch_video_channel_off() -> None:
+                logger.info("Switching Unitree WebRTC video channel off")
                 self.conn.video.switchVideoChannel(False)
 
             self.loop.call_soon_threadsafe(switch_video_channel_off)

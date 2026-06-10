@@ -17,11 +17,42 @@ from dimos.core.coordination.blueprints import autoconnect
 from dimos.perception.perceive_loop_skill import PerceiveLoopSkill
 from dimos.perception.spatial_perception import SpatialMemory
 from dimos.robot.unitree.go2.blueprints.smart.unitree_go2 import unitree_go2
+<<<<<<< HEAD
+=======
+from dimos.robot.unitree.go2.connection import GO2Connection
+from dimos.utils.logging_config import setup_logger
+>>>>>>> orboh/main
 
-unitree_go2_spatial = autoconnect(
+logger = setup_logger()
+
+
+def _security_blueprint_if_available() -> object | None:
+    try:
+        import torch
+    except Exception:
+        logger.warning("PyTorch is unavailable, skipping SecurityModule in unitree_go2_spatial")
+        return None
+
+    if not torch.cuda.is_available():
+        logger.warning("CUDA is unavailable, skipping SecurityModule in unitree_go2_spatial")
+        return None
+
+    return SecurityModule.blueprint(camera_info=GO2Connection.camera_info_static)
+
+_modules = [
     unitree_go2,
     SpatialMemory.blueprint(),
     PerceiveLoopSkill.blueprint(),
+<<<<<<< HEAD
 ).global_config(n_workers=8)
+=======
+]
+
+_security_blueprint = _security_blueprint_if_available()
+if _security_blueprint is not None:
+    _modules.append(_security_blueprint)
+
+unitree_go2_spatial = autoconnect(*_modules).global_config(n_workers=8)
+>>>>>>> orboh/main
 
 __all__ = ["unitree_go2_spatial"]

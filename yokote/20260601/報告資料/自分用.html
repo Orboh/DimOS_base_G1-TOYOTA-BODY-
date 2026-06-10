@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>上司説明用 自分メモ（2026-06-01）</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+      background: #f4f6f9;
+      color: #2d2d2d;
+      line-height: 1.7;
+      padding: 24px 16px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 1.5rem;
+      color: #1a1a2e;
+      margin-bottom: 4px;
+    }
+
+    .subtitle {
+      text-align: center;
+      font-size: 0.85rem;
+      color: #888;
+      margin-bottom: 28px;
+    }
+
+    /* ---- 最初の一言 ---- */
+    .opener {
+      background: #1a1a2e;
+      color: #fff;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 28px;
+      text-align: center;
+    }
+    .opener .label {
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      color: #aab4c8;
+      margin-bottom: 8px;
+    }
+    .opener .message {
+      font-size: 1.15rem;
+      font-weight: bold;
+      line-height: 1.6;
+    }
+
+    /* ---- Q&A カード ---- */
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    }
+
+    .card .question {
+      font-size: 0.8rem;
+      font-weight: bold;
+      letter-spacing: 0.05em;
+      color: #5a6ea0;
+      margin-bottom: 6px;
+    }
+
+    .card h2 {
+      font-size: 1.05rem;
+      color: #1a1a2e;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e8ecf4;
+    }
+
+    .card p { margin-bottom: 10px; font-size: 0.95rem; }
+    .card p:last-child { margin-bottom: 0; }
+
+    .card ul {
+      padding-left: 1.4em;
+      margin-bottom: 10px;
+      font-size: 0.95rem;
+    }
+    .card ul li { margin-bottom: 4px; }
+
+    /* ---- 答えのハイライト ---- */
+    .answer-box {
+      background: #eef2ff;
+      border-left: 4px solid #4a6cf7;
+      border-radius: 0 8px 8px 0;
+      padding: 12px 16px;
+      margin: 10px 0 14px;
+      font-weight: bold;
+      font-size: 0.95rem;
+      color: #1a1a2e;
+    }
+
+    .answer-box.orange {
+      background: #fff8e1;
+      border-left-color: #f9a825;
+    }
+
+    /* ---- サブセクション ---- */
+    .subsection {
+      margin-top: 16px;
+    }
+    .subsection-title {
+      font-size: 0.85rem;
+      font-weight: bold;
+      color: #5a6ea0;
+      background: #f0f3fb;
+      padding: 4px 10px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-bottom: 8px;
+    }
+
+    /* ---- フロー図 ---- */
+    .flow {
+      margin: 12px 0;
+    }
+    .flow-step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      margin-bottom: 4px;
+      font-size: 0.9rem;
+      background: #f8f9fc;
+    }
+    .flow-step.done {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    .flow-step.stuck {
+      background: #fff3e0;
+      color: #e65100;
+      font-weight: bold;
+    }
+    .flow-step.found {
+      background: #fce4ec;
+      color: #c62828;
+      font-weight: bold;
+    }
+    .flow-num {
+      font-weight: bold;
+      font-size: 0.85rem;
+      min-width: 24px;
+      text-align: center;
+    }
+    .flow-arrow {
+      text-align: center;
+      color: #bbb;
+      font-size: 1.1rem;
+      margin: 0 0 4px 16px;
+    }
+
+    /* ---- バッジ ---- */
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: bold;
+      padding: 2px 8px;
+      border-radius: 20px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .badge-ok { background: #e8f5e9; color: #2e7d32; }
+    .badge-wip { background: #fff3e0; color: #e65100; }
+    .badge-new { background: #e3f2fd; color: #1565c0; }
+
+    /* ---- 表 ---- */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      margin: 10px 0;
+    }
+    th {
+      background: #f0f3fb;
+      padding: 8px 10px;
+      text-align: left;
+      font-weight: bold;
+      color: #3a4a7a;
+    }
+    td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #eee;
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    .ok { color: #2e7d32; font-weight: bold; }
+    .ng { color: #c62828; font-weight: bold; }
+
+    /* ---- 困ったときのカード ---- */
+    .lifeline {
+      background: linear-gradient(135deg, #1a1a2e 0%, #3a4a7a 100%);
+      color: #fff;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-top: 8px;
+      text-align: center;
+    }
+    .lifeline .label {
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      color: #aab4c8;
+      margin-bottom: 10px;
+    }
+    .lifeline .message {
+      font-size: 1rem;
+      line-height: 1.7;
+    }
+
+    .note {
+      font-size: 0.82rem;
+      color: #888;
+      font-style: italic;
+      margin-top: 6px;
+    }
+
+    hr { border: none; border-top: 1px solid #e8ecf4; margin: 8px 0 14px; }
+  </style>
+</head>
+<body>
+
+  <h1>上司説明用 自分メモ</h1>
+  <p class="subtitle">2026-06-01 ／ G1カメラ問題 追加調査</p>
+
+  <!-- 最初の一言 -->
+  <div class="opener">
+    <div class="label">▶ まず最初に言う一言</div>
+    <div class="message">「前回止まっていたG1との接続は今日解決できました。<br>ただ、カメラ映像が届かない原因を深く調べたら、<br>ソフトウェアではなく<strong>G1本体のカメラ自体が認識されていない</strong>ことがわかりました。」</div>
+  </div>
+
+  <!-- Q1 今日の目標は？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「今日の目標は何だったの？」と聞かれたら</h2>
+    <p>前回（5/20）の調査では、G1のLiDARを動かすことはできました。でも、カメラについては最後の接続手順が完了せず「映像が流れているかどうか」を確認できないままでした。</p>
+    <div class="answer-box">「その続きとして、G1のカメラ映像をDimOSで使えるようにすること」が今日の目標でした。</div>
+    <p>具体的には、以下がすべて画面に出るようにする、というゴールを設定していました。</p>
+    <ul>
+      <li>G1との通信経路が最後まで開く（接続完了のログが出る）</li>
+      <li>G1本体カメラの映像がDimOSに流れ込む</li>
+      <li>前回動いたLiDARのデータも引き続き流れたまま</li>
+    </ul>
+  </div>
+
+  <!-- Q2 前回の接続問題は解決した？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「前回の接続問題は解決したの？」と聞かれたら <span class="badge badge-ok">解決 ✅</span></h2>
+    <div class="answer-box">「はい、今日の環境では自然に成功しました。」</div>
+    <p>前回は「接続の最後の認証手順（DataChannel Validation）」で止まっていましたが、今日は同じコードで以下のログが全部出ました：</p>
+
+    <div class="flow">
+      <div class="flow-step done"><span class="flow-num">①</span><span>G1からの返事（SDP answer）を受け取る</span></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-step done"><span class="flow-num">②</span><span>接続状態が「connected」になる</span></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-step done"><span class="flow-num">③</span><span>データチャンネルの認証が通る（前回ここで止まっていた）</span></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-step done"><span class="flow-num">④</span><span>「接続完了」のログが出る</span></div>
+    </div>
+
+    <p class="note">なぜ今日は成功したか？ → 前回と今日でG1本体の状態が少し違った可能性があり、前回のバグ修正（5秒→30秒に延ばしたタイムアウト）が効いたと思われます。</p>
+  </div>
+
+  <!-- Q3 じゃあカメラは使えた？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「じゃあカメラ映像は使えるようになった？」と聞かれたら <span class="badge badge-wip">未解決 🔄</span></h2>
+    <div class="answer-box orange">「接続はできたのですが、映像のフレームが届きませんでした。<br>原因を調べたら、G1本体のカメラがコンピュータに認識されていないことがわかりました。」</div>
+
+    <p>今日確認できたことと、できなかったことをまとめると：</p>
+    <table>
+      <tr><th>項目</th><th>状態</th></tr>
+      <tr><td>G1との通信（WebRTC接続）</td><td class="ok">✅ 成功</td></tr>
+      <tr><td>周囲の地図（LiDAR）</td><td class="ok">✅ 流れている</td></tr>
+      <tr><td>ロボットの位置情報（odometry）</td><td class="ok">✅ 流れている</td></tr>
+      <tr><td>カメラの設定情報（camera_info）</td><td class="ok">✅ 流れている</td></tr>
+      <tr><td>カメラの映像（color_image）</td><td class="ng">❌ 届かない</td></tr>
+    </table>
+  </div>
+
+  <!-- Q4 なぜ映像が届かないの？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「なんで映像が届かないの？」と聞かれたら</h2>
+    <div class="answer-box">「G1のロボット内部にあるコンピュータが、カメラをそもそも認識していないことがわかりました。」</div>
+
+    <p>「映像が来ない」原因がどこにあるかを、外側から内側へ順番に調べていきました：</p>
+
+    <div class="flow">
+      <div class="flow-step done">
+        <span class="flow-num">①</span>
+        <span>DimOS（PC側）のコードを確認 → 映像を受け取る設定は正しく書かれている</span>
+      </div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-step done">
+        <span class="flow-num">②</span>
+        <span>WebRTC経由で映像を40秒待つ → 0フレーム（映像なし）</span>
+      </div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-step done">
+        <span class="flow-num">③</span>
+        <span>別の経路（DDS）でも映像を取得しようとする → 同じく0件</span>
+      </div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-step done">
+        <span class="flow-num">④</span>
+        <span>UnitreeのスマホアプリでG1に接続してカメラ画面を確認</span>
+      </div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-step found">
+        <span class="flow-num">⑤</span>
+        <span>公式アプリの映像画面もノイズ表示 → 「DimOSの問題ではない」と判断</span>
+      </div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-step found">
+        <span class="flow-num">⑥</span>
+        <span>G1内部のコンピュータ（Jetson）にSSH接続して確認 → カメラデバイスが存在しない</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q5 Jetsonって何？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「Jetsonって何？」「SSHって何？」と聞かれたら</h2>
+
+    <div class="subsection">
+      <span class="subsection-title">Jetson とは</span>
+      <div class="answer-box">G1ロボットの内部に搭載されている、NVIDIA製のミニコンピュータです。</div>
+      <p>「G1の脳みそ」のような存在で、カメラ・センサーの処理などを担当します。今回でいうと、カメラをJetsonに繋いでJetsonが映像を処理して外部に送る、という構成になっているはずでした。</p>
+    </div>
+
+    <hr>
+
+    <div class="subsection">
+      <span class="subsection-title">SSH とは</span>
+      <div class="answer-box">離れたコンピュータを、ターミナル（黒い画面）で操作する方法です。</div>
+      <p>今回は、G1のJetsonにネットワーク経由でログインして「カメラが見えているか？」を直接確認しました。</p>
+    </div>
+
+    <hr>
+
+    <div class="subsection">
+      <span class="subsection-title">実際に確認したこと</span>
+      <p>Jetson内部で「カメラデバイスの一覧」を表示するコマンドを実行した結果：</p>
+      <table>
+        <tr><th>確認したこと</th><th>期待する結果</th><th>実際の結果</th></tr>
+        <tr>
+          <td>カメラデバイスの存在確認</td>
+          <td>/dev/video0 などが見える</td>
+          <td class="ng">「そのようなファイルはない」</td>
+        </tr>
+        <tr>
+          <td>USBデバイスの一覧</td>
+          <td>Intel RealSense などが見える</td>
+          <td class="ng">USBハブのみ。カメラなし</td>
+        </tr>
+        <tr>
+          <td>起動ログの確認</td>
+          <td>カメラが認識されたログがある</td>
+          <td class="ng">カメラ接続のログなし</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Q6 公式アプリでも映らないって本当？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「公式アプリでも映らなかったって？」と聞かれたら</h2>
+    <div class="answer-box">「Unitree Explore というUnitree公式のスマホアプリでG1に接続したところ、カメラ映像の画面がノイズ表示になっていました。」</div>
+    <p>これは重要な確認で、「DimOS（私たちのソフト）だけがうまくできていない」のではなく、<strong>G1本体のカメラ側に問題がある</strong>と判断する根拠になりました。</p>
+
+    <table>
+      <tr><th>アプリで確認した項目</th><th>結果</th></tr>
+      <tr><td>カメラ映像画面（Go!）</td><td class="ng">ノイズ表示。正常な映像なし</td></tr>
+      <tr><td>サービスの動作状態</td><td>ota_box 以外は正常</td></tr>
+      <tr><td>アラート・エラー情報</td><td>5/19 の通信タイムアウトのみ。カメラ関連エラーなし</td></tr>
+      <tr><td>自動検査（Video Interfaces）</td><td class="ng">video interface の検出結果が何も出ない</td></tr>
+    </table>
+
+    <p class="note">注：ota_box（ソフト更新に使う機能）が動いていないことは確認されましたが、カメラ映像とは無関係と考えています。</p>
+  </div>
+
+  <!-- Q7 ソフトで直せないの？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「ソフトウェアで解決できないの？」と聞かれたら</h2>
+    <div class="answer-box">「残念ながら、今回はソフトウェアで修正できる範囲を超えています。」</div>
+
+    <p>今日の調査で、DimOS側のソフトウェア配線は完成していることが確認できました：</p>
+    <ul>
+      <li>G1と通信経路が開く</li>
+      <li>カメラ映像を受け取る準備ができている</li>
+      <li>受け取ったらDimOSに流せる</li>
+    </ul>
+
+    <p style="margin-top: 10px;">ただし、一番上流にある「G1本体のカメラからコンピュータへの信号」が来ていないため、DimOS側でいくら設定しても映像は流れません。</p>
+
+    <div class="answer-box orange">「パイプは繋がったが、蛇口が閉まっている（または蛇口が壊れている）状態」</div>
+  </div>
+
+  <!-- Q8 次は何するの？ -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「次は何をするの？」と聞かれたら</h2>
+
+    <table>
+      <tr><th>#</th><th>やること</th><th>内容</th></tr>
+      <tr>
+        <td>1</td>
+        <td><strong>G1本体の物理確認</strong></td>
+        <td>このG1にカメラが搭載されているか、ケーブルが正しく繋がっているかを確認する</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td><strong>Unitreeに問い合わせ</strong></td>
+        <td>公式アプリでも映像が出ない件・カメラデバイスが認識されない件を問い合わせる</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td><strong>カメラが映ったら再確認</strong></td>
+        <td>物理的に解決した後で、DimOSのカメラ映像・LiDAR両方が動くか確認する</td>
+      </tr>
+    </table>
+
+    <p style="margin-top: 10px;">万が一カメラの解決に時間がかかる場合は、外付けUSBカメラを一時的に繋いで代替する方法も検討できます。</p>
+  </div>
+
+  <!-- 前回との比較 -->
+  <div class="card">
+    <div class="question">Q.</div>
+    <h2>「前回からどれだけ進んだの？」と聞かれたら</h2>
+
+    <table>
+      <tr><th>項目</th><th>5/20 時点</th><th>6/01 時点（今日）</th></tr>
+      <tr>
+        <td>G1との接続</td>
+        <td class="ng">接続の最後の手順で止まっていた</td>
+        <td class="ok">✅ 完全に成立</td>
+      </tr>
+      <tr>
+        <td>LiDAR</td>
+        <td class="ok">✅ 動作確認済み</td>
+        <td class="ok">✅ 引き続き動作</td>
+      </tr>
+      <tr>
+        <td>カメラ映像</td>
+        <td>コードは修正済み・接続待ち</td>
+        <td class="ng">接続はできたが映像なし（HW問題）</td>
+      </tr>
+      <tr>
+        <td>問題の所在</td>
+        <td>接続ライブラリのバグ</td>
+        <td>G1本体のカメラ認識問題（ソフトでは解決不可）</td>
+      </tr>
+    </table>
+
+    <p style="margin-top: 10px;">「接続はできた」「原因がわかった」という意味では前進しています。ただ、解決には<strong>G1本体の確認</strong>が必要な段階に到達した、というのが正確な状況です。</p>
+  </div>
+
+  <!-- 困ったときの一言 -->
+  <div class="lifeline">
+    <div class="label">🆘 困ったときの一言</div>
+    <div class="message">「前回止まっていたG1との通信は今日開通しました。<br>LiDARも引き続き動いています。<br>カメラについては、ソフトの問題ではなくG1本体のカメラが認識されていないことが今日わかりました。次はハードウェアの確認とUnitreeへの問い合わせをする段階です。」</div>
+  </div>
+
+</body>
+</html>
