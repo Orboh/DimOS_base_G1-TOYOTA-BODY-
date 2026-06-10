@@ -79,14 +79,27 @@ class PathClearance:
 
         return self._last_mask
 
-    def is_obstacle_ahead(self) -> bool:
+    def is_obstacle_ahead(self, lookahead: float | None = None) -> bool:
         with self._lock:
             costmap = self._costmap
+            pose_index = self._pose_index
 
         if costmap is None:
             return True
 
-        return bool(np.any(costmap.grid[self.mask] == CostValues.OCCUPIED))
+        if lookahead is None:
+            mask = self.mask
+        else:
+            # Custom lookahead: generate mask directly without touching cached state.
+            mask = make_path_mask(
+                occupancy_grid=costmap,
+                path=self._path,
+                robot_width=self._global_config.robot_width,
+                pose_index=pose_index,
+                max_length=lookahead,
+            )
+
+        return bool(np.any(costmap.grid[mask] == CostValues.OCCUPIED))
 
     def _pose_distance(self, index1: int, index2: int) -> float:
         p1 = self._path.poses[index1].position

@@ -173,7 +173,8 @@ class LocalPlanner(Resource):
         if path is None or path_clearance is None:
             raise RuntimeError("No path set for local planner.")
 
-        # Determine initial state: skip initial_rotation if already aligned.
+        # Determine initial state: skip initial_rotation if already aligned,
+        # or if the path ahead has no obstacles (rotate-in-place not needed).
         new_state: PlannerState = "initial_rotation"
         if current_odom is not None and len(path.poses) > 0:
             first_yaw = path.poses[0].orientation.euler[2]
@@ -188,6 +189,12 @@ class LocalPlanner(Resource):
                 if position_in_tolerance:
                     new_state = "final_rotation"
                 else:
+                    new_state = "path_following"
+            else:
+                # Path is misaligned but no obstacle within 1 m → skip pre-rotation.
+                # The PController will correct heading while driving forward.
+                path_clearance.update_costmap(self._navigation_map.binary_costmap)
+                if not path_clearance.is_obstacle_ahead(lookahead=1.0):
                     new_state = "path_following"
 
         with self._lock:
