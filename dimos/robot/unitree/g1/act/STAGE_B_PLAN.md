@@ -24,11 +24,11 @@
 
 ```
 G1Connection (lowstate源) ──JointState──┐
-ZmqCamera (ego_view, BGR) ───Image──────┤
+TeleimagerCamera (teleimager) ─Image────┤
                                          ▼
                                     ActBridge ──(ZMQ REQ)──> ACT service (別venv, lerobot ACTPolicy)
                                     ├ state[16] 組立(腕14 + 右grip1 + 左grip=0)        └ action[16]
-                                    └ BGR→RGB 480x640 変換
+                                    └ RGB 480x640（teleimager形式・変換不要）
                                          │ Out[JointState] arm_target
                                          ▼
                               G1ArmSdkConnection ──CycloneDDS── rt/arm_sdk (motor_cmd[15-28], weight@29)
@@ -56,10 +56,19 @@ autoconnect で Out↔In を名前一致で結線。
   - ゲインは現状値で可（バグは slew であってゲインではない）。
   - `~/act-okura/act_g1_direct.py` の閉ループ実装を DimOS モジュールへ移植するのが近道。
 
-### ② カメラ形式変換
-- DimOS `ZmqCamera` = GEAR-SONIC `ego_view`（BGR, :5555）。ACT = RGB 480×640 `cam_left_high`。
-- ActBridge で `cv2.cvtColor(BGR→RGB)` ＋必要なら resize→480×640。**GEAR-SONIC の実解像度を実測**し teleimager(480×640) と一致するか確認。
-- ⚠️ D435i は 1 台。DimOS publisher と teleimager は同時起動不可 → DimOS 経路なら ZmqCamera に統一。
+### ② カメラ：`TeleimagerCamera` モジュール新設（`color_image` 互換）＋起動時 teleimager 化
+**方針**：DimOS のカメラ源を GEAR-SONIC から **teleimager に一本化**。DimOS の下流（nav / ActBridge）は `color_image`（`Out[Image]`）ストリームしか見ないので、**源モジュールを差し替えても出力を `color_image` のままにすれば下流は無改修**で動く。これで「nav が壊れる」ジレンマ（旧案A/B）が解消し、源を teleimager に統一しつつ nav を温存できる。
+
+- **`TeleimagerCamera` モジュール新設**（`ZmqCamera` と同形＝`Out[Image] color_image` を出す）：
+  - 中身は teleimager の `ImageClient`（eval_g1.py と同じ。:60000 で設定取得 → :55555 購読 → `get_head_frame()`）でフレーム取得 → DimOS `Image` msg に詰めて emit。
+  - 実装は (a) teleimager を DimOS venv に入れて `ImageClient` 再利用、または (b) teleimager のワイヤ形式を読む薄い ZMQ サブスクライバを内製（依存を増やさない）。
+  - 色順(BGR→RGB)・解像度を確認（ACT は RGB 480×640。teleimager `head_camera` は 480×640 単眼で一致）。
+- **blueprint 置換**：`unitree_g1_act_arm.py`（および nav 系）で `ZmqCamera` → `TeleimagerCamera`（env で切替可能にしておくと安全）。下流は `color_image` を受けるだけなので無改修。
+- **起動時 publisher を teleimager 化**：NX の `g1-cam-publisher.service`（`uvc_zmq_publisher.py`, GEAR-SONIC `ego_view`:5555）を無効化し、teleimager image_server（conda `teleimager_relobot`、`teleimager-server --rs`、:55555 PUB + :60000 REQ-REP）を systemd で boot 自動起動に。
+  - ⚠️ **D435i は1台＝排他**。teleimager 一本化で GEAR-SONIC publisher は廃止（同時起動不可）。`color_image` を保つので nav は源が teleimager になるだけ。
+  - **共有NXインフラの変更**＝本来 Sota に Discord 調整（openclaw 壊れ中）。NX は ssh 必須で直接触れないため、`g1-teleimager.service` ＋ conda 起動 wrapper ＋ installer ＋ 旧サービス無効化手順を用意し、実行はオペレータ（NX 側）。
+- **利点**：起動 publisher 1本化（D435i 競合解消）／ACT が学習時と同一の teleimager 形式を受領（変換の当て推量不要）／nav 無改修。
+- （別案）DimOS 無改修で「teleimager 購読→`ego_view`:5555 再 publish」ブリッジを1個挟む手もあるが、1ホップ＋JPEG再エンコード増。**本筋は `TeleimagerCamera` 新設**。
 
 ### ③ 観測 state[16] の組立（実機グリッパー対応）
 - 腕14（恒等写像、dimos 順＝G1_29_JointArmIndex で検証済）＋ **左grip=0 固定**（右手のみ・学習の定数0と一致）＋ **右grip=`rt/dex1/right/state`**。
@@ -95,7 +104,7 @@ autoconnect で Out↔In を名前一致で結線。
 
 ## 4. リスク / 未確定
 
-- GEAR-SONIC `ego_view` の解像度が 480×640 でない可能性（→ resize 必須）。
+- teleimager `head_camera` の解像度・色順が ACT 期待(RGB 480×640)と一致するか要確認。`TeleimagerCamera` 実装時に teleimager 依存を DimOS venv に入れるか薄い購読を内製するかの判断。
 - ZMQ サービスのレイテンシが 30Hz ループに乗るか。
 - coordinator 系 blueprint の既存送信経路（lowcmd 等）と arm_sdk の競合。
 - ACT 観測の closed-loop：腕が追従しないと obs が OOD 化（①が効くか B1 で要確認）。
