@@ -88,7 +88,7 @@ class ActBridge(Module):
         self.register_disposable(Disposable(self.color_image.subscribe(self._on_image)))
         self.register_disposable(Disposable(self.motor_states.subscribe(self._on_state)))
         self._stop_event.clear()
-        self._thread = Thread(target=self._loop, daemon=True, name="act-bridge")
+        self._thread = Thread(target=self._act_loop, daemon=True, name="act-bridge")
         self._thread.start()
         logger.info(
             "ActBridge started",
@@ -136,7 +136,7 @@ class ActBridge(Module):
         grippers = [0.0, 0.0]  # dry-run; replace with rt/dex1 state in Stage 2
         return [float(x) for x in arms] + grippers
 
-    def _loop(self) -> None:
+    def _act_loop(self) -> None:
         import cv2
         import msgpack
         import numpy as np
