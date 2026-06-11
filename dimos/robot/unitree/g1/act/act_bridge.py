@@ -41,7 +41,7 @@ from reactivex.disposable import Disposable
 from dimos.control.components import make_humanoid_joints
 from dimos.core.core import rpc
 from dimos.core.module import Module, ModuleConfig
-from dimos.core.stream import In
+from dimos.core.stream import In, Out
 from dimos.msgs.sensor_msgs.Image import Image
 from dimos.msgs.sensor_msgs.JointState import JointState
 from dimos.utils.logging_config import setup_logger
@@ -73,6 +73,7 @@ class ActBridge(Module):
 
     color_image: In[Image]
     motor_states: In[JointState]
+    arm_target: Out[JointState]  # 14 arm targets -> G1ArmSdkConnection (Stage 2)
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -195,18 +196,21 @@ class ActBridge(Module):
         sock.close()
 
     def _handle_action(self, action: Any, count: int) -> None:
-        """DRY-RUN: log the predicted action mapped to dimos joints. No motor write."""
-        if self.config.dry_run:
-            if count % self.config.log_every_n == 1:
-                arms = action[:_NUM_ARM]
-                grip = action[_NUM_ARM:_STATE_DIM]
-                pairs = ", ".join(
-                    f"{n.split('/')[-1]}={v:.3f}" for n, v in zip(_ARM_JOINT_NAMES, arms)
-                )
-                logger.info(f"[dry-run] ACT action #{count}: {pairs} | grip={grip}")
-            return
-        # Stage 2: map action -> MotorCommandArray (arms) + rt/dex1 (grippers) and publish.
-        raise NotImplementedError("non-dry-run motor output is Stage 2")
+        """Publish the 14 arm targets (Stage 2) and/or log. Grippers not driven yet."""
+        arms = action[:_NUM_ARM]
+        if not self.config.dry_run:
+            js = JointState(
+                name=list(_ARM_JOINT_NAMES),
+                position=[float(x) for x in arms[:_NUM_ARM]],
+                velocity=[0.0] * _NUM_ARM,
+                effort=[0.0] * _NUM_ARM,
+            )
+            self.arm_target.publish(js)
+        if count % self.config.log_every_n == 1:
+            grip = action[_NUM_ARM:_STATE_DIM]
+            pairs = ", ".join(f"{n.split('/')[-1]}={v:.3f}" for n, v in zip(_ARM_JOINT_NAMES, arms))
+            tag = "dry-run" if self.config.dry_run else "LIVE→arm_sdk"
+            logger.info(f"[{tag}] ACT action #{count}: {pairs} | grip={grip}")
 
 
 __all__ = ["ActBridge", "ActBridgeConfig"]
