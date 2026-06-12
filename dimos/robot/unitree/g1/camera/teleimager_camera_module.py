@@ -141,4 +141,19 @@ class TeleimagerCamera(Module):
         super().stop()
 
 
-__all__ = ["TeleimagerCamera", "TeleimagerCameraModuleConfig"]
+class RightWristTeleimagerCamera(TeleimagerCamera):
+    """Distinct subclass of :class:`TeleimagerCamera` for the right-wrist camera.
+
+    ``autoconnect()`` deduplicates blueprint atoms by module *class*, and the
+    remapping API keys on (module class, stream). To run the head and a wrist
+    TeleimagerCamera together in one blueprint, the wrist must be a distinct
+    class so it is not deduped and its ``color_image`` Out can be remapped to a
+    separate stream (e.g. cam_right_wrist). Instantiate with camera="right_wrist".
+    """
+
+
+__all__ = [
+    "TeleimagerCamera",
+    "TeleimagerCameraModuleConfig",
+    "RightWristTeleimagerCamera",
+]
