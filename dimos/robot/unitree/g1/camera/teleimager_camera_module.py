@@ -8,13 +8,18 @@
 
 """Module wrapper around :class:`TeleimagerImageSource`.
 
-Drop-in replacement for :class:`ZmqCamera`: it publishes the G1 head-camera
-frames on the SAME ``color_image`` stream, so downstream modules (nav viewer,
+Drop-in replacement for :class:`ZmqCamera`: it publishes a G1 camera's frames
+on the SAME ``color_image`` stream, so downstream modules (nav viewer,
 ActBridge) need no change — only the camera *source* differs (teleimager's
 ``image_server`` instead of the GEAR-SONIC ``ego_view`` publisher).
 
-    NX:  teleimager-server --rs   (config :60000, frames :55555)
+    NX:  teleimager-server --rs   (config :60000, frames :55555+)
     PC:  this module               (ImageClient -> color_image)
+
+The ``camera`` config (env ``TELEIMAGER_CAMERA``) selects which teleimager
+camera to publish: "head" (default), "left_wrist" or "right_wrist". Instantiate
+one module per camera in a blueprint and remap each ``color_image`` to a
+distinct stream (e.g. cam_left_high / cam_right_wrist).
 
 Why teleimager: the okra ACT policy was trained/deployed against teleimager's
 exact image format, so feeding it the same frames avoids any format guesswork.
@@ -49,10 +54,12 @@ class TeleimagerCameraModuleConfig(ModuleConfig):
     host: str = Field(default_factory=lambda: os.getenv("TELEIMAGER_HOST", "192.168.123.164"))
     request_port: int = Field(default_factory=lambda: int(os.getenv("TELEIMAGER_PORT", "60000")))
     fps: float = Field(default_factory=lambda: float(os.getenv("TELEIMAGER_FPS", "30")))
+    # Which teleimager camera to publish: "head" | "left_wrist" | "right_wrist".
+    camera: str = Field(default_factory=lambda: os.getenv("TELEIMAGER_CAMERA", "head"))
 
 
 class TeleimagerCamera(Module):
-    """Publishes teleimager head-camera frames on color_image (RGB)."""
+    """Publishes a teleimager camera's frames on color_image (RGB)."""
 
     config: TeleimagerCameraModuleConfig
     color_image: Out[Image]
@@ -70,6 +77,7 @@ class TeleimagerCamera(Module):
                 host=self.config.host,
                 request_port=self.config.request_port,
                 fps=self.config.fps,
+                camera=self.config.camera,
             )
         )
         self._source.start()
@@ -85,6 +93,7 @@ class TeleimagerCamera(Module):
             host=self.config.host,
             request_port=self.config.request_port,
             fps=self.config.fps,
+            camera=self.config.camera,
         )
 
     def _on_frame(self, image: Image) -> None:
@@ -92,6 +101,7 @@ class TeleimagerCamera(Module):
         if self._frame_count == 1:
             logger.info(
                 "TeleimagerCamera first frame received — publishing on color_image",
+                camera=self.config.camera,
                 size=f"{image.width}x{image.height}",
             )
         self.color_image.publish(image)
@@ -107,11 +117,13 @@ class TeleimagerCamera(Module):
                 logger.warning(
                     "TeleimagerCamera: NO frames received — is teleimager-server running on the NX?",
                     host=self.config.host,
+                    camera=self.config.camera,
                     hint="on the NX: teleimager-server --rs",
                 )
             else:
                 logger.info(
                     "TeleimagerCamera receiving",
+                    camera=self.config.camera,
                     fps=round(received / STATS_INTERVAL_S, 1),
                     total=self._frame_count,
                 )

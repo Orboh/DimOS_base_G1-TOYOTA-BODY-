@@ -13,8 +13,13 @@ It reuses teleimager's own ``ImageClient`` (the exact client unitree_lerobot's
 ``eval_g1.py`` uses) so the wire format is guaranteed correct — we do NOT
 re-implement teleimager's protocol.
 
-    NX (server): teleimager-server --rs        (config REQ-REP :60000, frames PUB :55555)
+    NX (server): teleimager-server --rs        (config REQ-REP :60000, frames PUB :55555+)
     PC (client): this source                    (ImageClient -> color_image)
+
+The ``camera`` field selects which teleimager camera to pull — "head",
+"left_wrist" or "right_wrist" — mapping to ImageClient.get_<camera>_frame().
+This lets one module type serve any G1 camera; a blueprint instantiates one
+per camera and remaps the output stream.
 
 ``ImageClient`` is imported lazily inside :meth:`start` so the rest of DimOS
 (and the blueprint) can import this module even when teleimager is not
@@ -76,15 +81,16 @@ def _load_image_client_cls() -> type:
 class TeleimagerCameraConfig:
     host: str = "192.168.123.164"
     request_port: int = 60000  # teleimager config REQ-REP port
-    fps: float = 30.0  # head-frame poll rate [Hz]
-    frame_id: str = "head_camera"
+    fps: float = 30.0  # frame poll rate [Hz]
+    camera: str = "head"  # which camera to pull: "head" | "left_wrist" | "right_wrist"
+    frame_id: str = ""  # default: same as `camera`
     # teleimager decodes to BGR when request_bgr=True (frame.bgr populated); we
     # then convert to RGB to match what the okra ACT policy was trained on.
     request_bgr: bool = True
 
 
 class TeleimagerImageSource:
-    """Polls teleimager's head frame and emits RGB :class:`Image` frames."""
+    """Polls a teleimager camera frame and emits RGB :class:`Image` frames."""
 
     def __init__(self, config: TeleimagerCameraConfig | None = None) -> None:
         self.config = config or TeleimagerCameraConfig()
@@ -106,10 +112,12 @@ class TeleimagerImageSource:
     def _run(self) -> None:
         assert self._client is not None
         period = 1.0 / max(1e-3, self.config.fps)
-        get_head_frame = self._client.get_head_frame  # type: ignore[attr-defined]
+        # Select the per-camera getter: get_head_frame / get_left_wrist_frame / get_right_wrist_frame
+        getter = getattr(self._client, f"get_{self.config.camera}_frame")  # type: ignore[attr-defined]
+        frame_id = self.config.frame_id or self.config.camera
         next_t = time.perf_counter()
         while not self._stop_event.is_set():
-            img = self._poll_frame(get_head_frame)
+            img = self._poll_frame(getter, frame_id)
             if img is not None:
                 self._latest = img
                 self._subject.on_next(img)
@@ -120,9 +128,9 @@ class TeleimagerImageSource:
             else:
                 next_t = time.perf_counter()
 
-    def _poll_frame(self, get_head_frame) -> Image | None:  # noqa: ANN001
+    def _poll_frame(self, getter, frame_id) -> Image | None:  # noqa: ANN001
         try:
-            frame = get_head_frame()
+            frame = getter()
             if frame is None:
                 return None
             bgr = getattr(frame, "bgr", None)
@@ -133,7 +141,7 @@ class TeleimagerImageSource:
                 return None
             rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
             ts = float(getattr(frame, "timestamp", None) or time.time())
-            return Image.from_numpy(rgb, format=ImageFormat.RGB, frame_id=self.config.frame_id, ts=ts)
+            return Image.from_numpy(rgb, format=ImageFormat.RGB, frame_id=frame_id, ts=ts)
         except Exception as exc:  # noqa: BLE001
             logger.warning("TeleimagerImageSource: frame poll failed", error=str(exc))
             return None
