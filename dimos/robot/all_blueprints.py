@@ -158,6 +158,7 @@ all_modules = {
     "g1-connection": "dimos.robot.unitree.g1.connection.G1Connection",
     "g1-connection-base": "dimos.robot.unitree.g1.connection.G1ConnectionBase",
     "g1-fast-lio-odometry-bridge": "dimos.robot.unitree.g1.odometry_bridge.G1FastLioOdometryBridge",
+    "g1-gripper-connection": "dimos.robot.unitree.g1.act.g1_gripper_connection.G1GripperConnection",
     "g1-high-level-dds-sdk": "dimos.robot.unitree.g1.effectors.high_level.dds_sdk.G1HighLevelDdsSdk",
     "g1-high-level-web-rtc": "dimos.robot.unitree.g1.effectors.high_level.webrtc.G1HighLevelWebRtc",
     "g1-sim-connection": "dimos.robot.unitree.g1.mujoco_sim.G1SimConnection",

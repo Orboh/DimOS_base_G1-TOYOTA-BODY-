@@ -16,17 +16,34 @@
 
 Publishes arm joint targets to ``rt/arm_sdk`` (LowCmd_, unitree_hg) WITHOUT
 releasing sport mode — the onboard controller keeps the legs balancing while
-arm_sdk overrides only the 14 arm joints (left 15-21, right 22-28), blended by
-the ``weight`` register at ``motor_cmd[29]`` (0→1). Protocol mirrors
-unitree_lerobot's robot_arm.py (topic, weight, CRC, mode_machine, gains).
+arm_sdk overrides the upper body, blended by the ``weight`` register at
+``motor_cmd[29]`` (0→1). This is a faithful port of unitree_lerobot's
+``G1_29_ArmController`` (the verified Stage A path that picked okra on the real
+robot on 2026-06-11), restructured as a dimos Module.
+
+What it drives (canonical 29-DOF G1 order):
+* arms 15-28 (14 joints) → track the ACT target on ``arm_target``;
+* waist 12-14 → held at the STARTUP pose with the stiff gains (kp=300), exactly
+  as the reference does, so the torso does not go limp under arm_sdk authority;
+* legs 0-11 → left untouched: arm_sdk in motion-control mode ignores them and
+  the onboard locomotion controller keeps the robot balancing.
+
+ANTI-DRIFT (the bug that caused the earlier drift):
+The command is clipped TOWARD the target relative to the **measured** current
+arm pose every 250 Hz cycle (``clip_arm_q_target``), limited to
+``arm_velocity_limit`` rad/s — identical to the reference. This guarantees the
+command never runs more than one step ahead of reality, so the closed-loop
+observation cannot go out of distribution (the previous slew-from-last-command
+at 0.5 rad/s made the arm lag the target → OOD → runaway).
 
 SAFETY (first real motion):
-- weight ramps 0→1 over ``weight_ramp_s`` (gradual authority handover).
-- the commanded angle slews toward the target at most ``max_arm_vel`` rad/s, so
-  the arms move slowly regardless of how far the ACT target jumps.
-- the target is initialised to the CURRENT arm pose (hold) until arm_target
+- ``q_target`` is initialised to the CURRENT arm pose (hold) until arm_target
   messages arrive; if they stop, the last target is held.
-- gripper joints are NOT touched here (Dex1 is a separate path).
+- ``weight`` ramps 0→1 over ``weight_ramp_s`` (the reference snaps it to 1.0,
+  which is safe because the clip-from-measured start has zero delta; the short
+  ramp here is a conservative extra).
+- on stop, ``weight`` ramps 1→0 to hand the arms back to the onboard controller.
+- gripper joints are NOT touched here (Dex1 is a separate module/path).
 """
 
 from __future__ import annotations
@@ -36,12 +53,13 @@ from threading import Thread
 import time
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 from pydantic import Field
 from reactivex.disposable import Disposable
 
 if TYPE_CHECKING:
     from unitree_sdk2py.core.channel import ChannelPublisher, ChannelSubscriber
-    from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
+    from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_
     from unitree_sdk2py.utils.crc import CRC
 
 from dimos.control.components import make_humanoid_joints
@@ -49,17 +67,18 @@ from dimos.core.core import rpc
 from dimos.core.module import Module, ModuleConfig
 from dimos.core.stream import In, Out
 from dimos.msgs.sensor_msgs.JointState import JointState
+from dimos.robot.unitree.g1.act.dds_init import ensure_channel_factory
 from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger()
 
 _NUM_MOTORS = 29
-_NUM_MOTOR_SLOTS = 35
 _WEIGHT_IDX = 29  # kNotUsedJoint0: arm_sdk authority weight (0..1)
 _MODE_MACHINE_WAIT_S = 10.0
 
-# Arm joints in the canonical 29-DOF order: left 15-21, right 22-28.
-_ARM_IDX = list(range(15, 29))
+# Canonical 29-DOF G1 order (matches Unitree G1_29_JointIndex):
+_WAIST_IDX = [12, 13, 14]            # waist yaw/roll/pitch — held at startup pose
+_ARM_IDX = list(range(15, 29))       # left arm 15-21, right arm 22-28 (14 joints)
 _WRIST_IDX = {19, 20, 21, 26, 27, 28}
 _G1_JOINTS = make_humanoid_joints("g1")
 _ARM_JOINT_NAMES = _G1_JOINTS[15:29]
@@ -67,21 +86,36 @@ _ARM_JOINT_NAMES = _G1_JOINTS[15:29]
 
 class G1ArmSdkConnectionConfig(ModuleConfig):
     network_interface: str = Field(default="")
-    publish_rate_hz: float = 250.0
-    # Proven arm gains (unitree_lerobot): shoulder/elbow vs wrist.
+    publish_rate_hz: float = 250.0   # reference control_dt = 1/250
+    # Proven arm gains (unitree_lerobot G1_29_ArmController): shoulder/elbow vs wrist.
     kp_arm: float = 80.0
     kd_arm: float = 3.0
     kp_wrist: float = 40.0
     kd_wrist: float = 1.5
+    # Stiff gains used by the reference to hold the waist at its startup pose.
+    kp_waist: float = 300.0
+    kd_waist: float = 3.0
     # SAFETY knobs.
-    weight_ramp_s: float = 5.0       # 0->1 authority handover time [s]
-    max_arm_vel: float = 0.5         # slew limit [rad/s]
+    weight_ramp_s: float = 2.0        # 0->1 authority handover time [s]
+    arm_velocity_limit: float = 20.0  # per-cycle clip toward target [rad/s] (reference value)
     motor_states_rate_hz: float = 50.0
     frame_id: str = "g1_pelvis"
+    # Throttle for the tracking-error log [cycles]; 250 == ~1/s at 250 Hz. This
+    # reports max|target - measured| so B1 can confirm the arm follows the ACT
+    # target without drifting (the failure mode this module was built to fix).
+    log_track_err_every_n: int = 250
+    # Optional 14-vector start pose [rad] the arms slew to before any ACT target
+    # arrives, mirroring eval_g1.py (which moves to the dataset's recorded first
+    # pose so the policy starts IN-distribution). Empty = hold the current pose.
+    initial_arm_pose: list[float] = Field(default_factory=list)
+    # DRY-RUN: when False, the loop still reads rt/lowstate and publishes
+    # motor_states (so this can be the observation source) but writes NOTHING to
+    # rt/arm_sdk — the arms do not move. Used by the dry-run blueprint.
+    publish_cmd: bool = True
 
 
 class G1ArmSdkConnection(Module):
-    """Arm-only DDS control via rt/arm_sdk (legs stay on the onboard controller)."""
+    """Upper-body DDS control via rt/arm_sdk (legs stay on the onboard controller)."""
 
     config: G1ArmSdkConnectionConfig
 
@@ -99,29 +133,18 @@ class G1ArmSdkConnection(Module):
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: Thread | None = None
-        # 14-vector commanded (slewed) and target arm angles.
-        self._commanded_q: list[float] | None = None
-        self._target_q: list[float] | None = None
+        self._target_q: np.ndarray | None = None  # 14-vector ACT arm target [rad]
         self._t_start: float = 0.0
 
     @rpc
     def start(self) -> None:
         super().start()
-        from unitree_sdk2py.core.channel import (
-            ChannelFactoryInitialize,
-            ChannelPublisher,
-            ChannelSubscriber,
-        )
+        from unitree_sdk2py.core.channel import ChannelPublisher, ChannelSubscriber
         from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
         from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
         from unitree_sdk2py.utils.crc import CRC
 
-        nic = self.config.network_interface
-        logger.info(f"Initializing DDS (G1 arm_sdk) interface={nic!r}...")
-        try:
-            ChannelFactoryInitialize(0, nic) if nic else ChannelFactoryInitialize(0)
-        except Exception as e:
-            logger.debug(f"ChannelFactoryInitialize raised (likely already init'd): {e}")
+        ensure_channel_factory(self.config.network_interface)
 
         self._publisher = ChannelPublisher("rt/arm_sdk", LowCmd_)
         self._publisher.Init()
@@ -131,14 +154,22 @@ class G1ArmSdkConnection(Module):
 
         self._low_cmd = unitree_hg_msg_dds__LowCmd_()
         self._low_cmd.mode_pr = 0
-        # arm_sdk: only the arm joints carry gains; legs/waist left at zero gain so
-        # the onboard controller keeps them. weight slot starts at 0 (no authority).
+        # arm joints carry the tracking gains; waist carries the stiff hold gains.
+        # Legs (0-11) are left at their defaults (mode 0, zero gain): arm_sdk ignores
+        # them and the onboard locomotion controller keeps them. weight starts at 0.
         for i in _ARM_IDX:
             self._low_cmd.motor_cmd[i].mode = 1
+            is_wrist = i in _WRIST_IDX
+            self._low_cmd.motor_cmd[i].kp = self.config.kp_wrist if is_wrist else self.config.kp_arm
+            self._low_cmd.motor_cmd[i].kd = self.config.kd_wrist if is_wrist else self.config.kd_arm
+        for i in _WAIST_IDX:
+            self._low_cmd.motor_cmd[i].mode = 1
+            self._low_cmd.motor_cmd[i].kp = self.config.kp_waist
+            self._low_cmd.motor_cmd[i].kd = self.config.kd_waist
         self._low_cmd.motor_cmd[_WEIGHT_IDX].q = 0.0
 
-        # Wait for the first LowState: capture mode_machine + current arm pose.
-        logger.info("Waiting for first LowState (mode_machine + current arm pose)...")
+        # Wait for the first LowState: capture mode_machine + current arm/waist pose.
+        logger.info("Waiting for first LowState (mode_machine + current upper-body pose)...")
         t0 = time.time()
         while time.time() - t0 < _MODE_MACHINE_WAIT_S:
             with self._lock:
@@ -148,10 +179,22 @@ class G1ArmSdkConnection(Module):
         with self._lock:
             if self._mode_machine is None or self._low_state is None:
                 raise RuntimeError("No LowState received; cannot start arm_sdk safely")
-            cur = [float(self._low_state.motor_state[i].q) for i in _ARM_IDX]
-            self._commanded_q = list(cur)
-            self._target_q = list(cur)  # hold current pose until ACT sends targets
-        logger.info(f"arm_sdk ready (mode_machine={self._mode_machine}); holding current arm pose")
+            arm_q = np.array([float(self._low_state.motor_state[i].q) for i in _ARM_IDX])
+            init = self.config.initial_arm_pose
+            if init and len(init) == len(_ARM_IDX):
+                # Slew (at the safe velocity limit) to the dataset start pose so the
+                # policy begins in-distribution, instead of holding the current pose.
+                self._target_q = np.array([float(x) for x in init])
+                logger.info(f"arm_sdk: slewing to configured initial_arm_pose (max move "
+                            f"{float(np.max(np.abs(self._target_q - arm_q))):.3f} rad)")
+            else:
+                self._target_q = arm_q.copy()  # hold current pose until ACT sends targets
+            # Pin the waist command to the current pose ONCE; it is held thereafter.
+            for i in _WAIST_IDX:
+                self._low_cmd.motor_cmd[i].q = float(self._low_state.motor_state[i].q)
+                self._low_cmd.motor_cmd[i].dq = 0.0
+                self._low_cmd.motor_cmd[i].tau = 0.0
+        logger.info(f"arm_sdk ready (mode_machine={self._mode_machine}); holding current upper-body pose")
 
         self.register_disposable(Disposable(self.arm_target.subscribe(self._on_arm_target)))
         self._t_start = time.perf_counter()
@@ -162,7 +205,7 @@ class G1ArmSdkConnection(Module):
             "G1ArmSdkConnection started",
             rate_hz=self.config.publish_rate_hz,
             weight_ramp_s=self.config.weight_ramp_s,
-            max_arm_vel=self.config.max_arm_vel,
+            arm_velocity_limit=self.config.arm_velocity_limit,
         )
 
     @rpc
@@ -173,10 +216,15 @@ class G1ArmSdkConnection(Module):
             self._thread.join(timeout=2.0)
             self._thread = None
         try:
-            if self._publisher is not None and self._low_cmd is not None and self._crc is not None:
-                for w in [x / 20.0 for x in range(20, -1, -1)]:  # 1.0 -> 0.0 over ~ steps
+            if (
+                self.config.publish_cmd
+                and self._publisher is not None
+                and self._low_cmd is not None
+                and self._crc is not None
+            ):
+                for w in np.linspace(1.0, 0.0, 101):
                     with self._lock:
-                        self._low_cmd.motor_cmd[_WEIGHT_IDX].q = w
+                        self._low_cmd.motor_cmd[_WEIGHT_IDX].q = float(w)
                         if self._mode_machine is not None:
                             self._low_cmd.mode_machine = self._mode_machine
                         self._low_cmd.crc = self._crc.Crc(self._low_cmd)
@@ -210,57 +258,72 @@ class G1ArmSdkConnection(Module):
         if len(pos) < len(_ARM_IDX):
             logger.warning(f"arm_target has {len(pos)} joints; expected {len(_ARM_IDX)}; ignoring")
             return
+        target = np.array([float(x) for x in pos[: len(_ARM_IDX)]])
+        if not np.all(np.isfinite(target)):
+            logger.warning("arm_target contains non-finite values; ignoring")
+            return
         with self._lock:
-            self._target_q = [float(x) for x in pos[: len(_ARM_IDX)]]
+            self._target_q = target
+
+    def _clip_to_measured(self, target_q: np.ndarray, measured_q: np.ndarray) -> np.ndarray:
+        """Scale (target - measured) so the largest joint step <= vel_limit * dt.
+
+        Faithful port of G1_29_ArmController.clip_arm_q_target: clips relative to
+        the MEASURED pose every cycle, so the command never runs ahead of reality.
+        """
+        dt = 1.0 / float(self.config.publish_rate_hz)
+        delta = target_q - measured_q
+        max_step = self.config.arm_velocity_limit * dt
+        motion_scale = np.max(np.abs(delta)) / max_step if max_step > 0 else np.inf
+        return measured_q + delta / max(motion_scale, 1.0)
 
     def _control_loop(self) -> None:
         period = 1.0 / float(self.config.publish_rate_hz)
-        max_step = self.config.max_arm_vel * period  # slew per cycle [rad]
         ms_period = 1.0 / float(self.config.motor_states_rate_hz)
         next_tick = time.perf_counter()
         last_ms = 0.0
+        cycle = 0
 
         while not self._stop_event.is_set():
             now = time.perf_counter()
             weight = min(1.0, (now - self._t_start) / max(1e-3, self.config.weight_ramp_s))
+            cycle += 1
 
             with self._lock:
                 if self._low_cmd is None or self._crc is None or self._publisher is None:
                     break
-                target = list(self._target_q or [])
-                cmd = self._commanded_q
-                if cmd is not None and target:
-                    # slew each joint toward target, clipped to max_step
-                    for k in range(len(cmd)):
-                        d = target[k] - cmd[k]
-                        if d > max_step:
-                            d = max_step
-                        elif d < -max_step:
-                            d = -max_step
-                        cmd[k] += d
+                low_state = self._low_state
+                target = self._target_q
+                if low_state is not None and target is not None:
+                    measured = np.array([float(low_state.motor_state[i].q) for i in _ARM_IDX])
+                    clipped = self._clip_to_measured(target, measured)
                     for k, i in enumerate(_ARM_IDX):
-                        is_wrist = i in _WRIST_IDX
-                        self._low_cmd.motor_cmd[i].q = cmd[k]
+                        self._low_cmd.motor_cmd[i].q = float(clipped[k])
                         self._low_cmd.motor_cmd[i].dq = 0.0
                         self._low_cmd.motor_cmd[i].tau = 0.0
-                        self._low_cmd.motor_cmd[i].kp = (
-                            self.config.kp_wrist if is_wrist else self.config.kp_arm
-                        )
-                        self._low_cmd.motor_cmd[i].kd = (
-                            self.config.kd_wrist if is_wrist else self.config.kd_arm
-                        )
                     self._low_cmd.motor_cmd[_WEIGHT_IDX].q = weight
                     if self._mode_machine is not None:
                         self._low_cmd.mode_machine = self._mode_machine
                     self._low_cmd.crc = self._crc.Crc(self._low_cmd)
-                    self._publisher.Write(self._low_cmd)
+                    if self.config.publish_cmd:  # dry-run: never write to rt/arm_sdk
+                        self._publisher.Write(self._low_cmd)
+                    # Drift watch: max joint error between the ACT target and the
+                    # measured pose. Should stay small (≈ within one slew step once
+                    # the arm catches up); a growing value signals the arm is not
+                    # following → observation goes OOD → the old runaway.
+                    if cycle % max(1, self.config.log_track_err_every_n) == 1:
+                        track_err = float(np.max(np.abs(target - measured)))
+                        logger.info(
+                            f"arm track: max|target-measured|={track_err:.3f} rad "
+                            f"weight={weight:.2f} {'LIVE' if self.config.publish_cmd else 'DRY'}"
+                        )
 
-                # publish motor_states for the ACT observation (downsampled)
-                if self._low_state is not None and (now - last_ms) >= ms_period:
+                # Publish motor_states for the ACT observation (downsampled).
+                if low_state is not None and (now - last_ms) >= ms_period:
                     last_ms = now
                     names = list(_G1_JOINTS)
-                    pos = [float(self._low_state.motor_state[i].q) for i in range(_NUM_MOTORS)]
-                    vel = [float(self._low_state.motor_state[i].dq) for i in range(_NUM_MOTORS)]
+                    pos = [float(low_state.motor_state[i].q) for i in range(_NUM_MOTORS)]
+                    vel = [float(low_state.motor_state[i].dq) for i in range(_NUM_MOTORS)]
                     js = JointState(name=names, position=pos, velocity=vel, effort=[0.0] * _NUM_MOTORS)
                     js.frame_id = self.config.frame_id
                     self.motor_states.publish(js)

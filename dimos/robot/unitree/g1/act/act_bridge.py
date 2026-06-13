@@ -25,8 +25,14 @@ dimos make_humanoid_joints("g1")):
     [7:14]  right arm  -> dimos motor index 22-28
     [14]    left gripper  (Dex1)   [15] right gripper (Dex1)
 
-DRY-RUN (default): the predicted action is only logged — nothing is written to
-any motor / DDS topic. Sending to the robot is Stage 2.
+The G1 has only the RIGHT Dex1 installed and the okra dataset's left-gripper dim
+is the constant 0, so state[14] is pinned to 0.0 and state[15] is the measured
+right gripper q (from ``rt/dex1/right/state`` via the gripper module). On output
+the 14 arm targets go to G1ArmSdkConnection and action[15] (right gripper) goes
+to the gripper module; action[14] (left) is dropped.
+
+DRY-RUN (default): the predicted action is only logged — nothing is published
+downstream. Driving the robot is enabled with ``dry_run=False``.
 """
 
 from __future__ import annotations
@@ -53,9 +59,12 @@ _ARM_START = 15
 _NUM_ARM = 14
 _NUM_GRIPPER = 2
 _STATE_DIM = _NUM_ARM + _NUM_GRIPPER  # 16
+_LEFT_GRIP_IDX = _NUM_ARM       # state/action[14] = left gripper (constant 0, unused)
+_RIGHT_GRIP_IDX = _NUM_ARM + 1  # state/action[15] = right gripper (the real Dex1)
 
 _G1_JOINTS = make_humanoid_joints("g1")
 _ARM_JOINT_NAMES = _G1_JOINTS[_ARM_START : _ARM_START + _NUM_ARM]
+_RIGHT_GRIPPER_JOINT = "g1/right_gripper"
 
 
 class ActBridgeConfig(ModuleConfig):
@@ -64,6 +73,10 @@ class ActBridgeConfig(ModuleConfig):
     recv_timeout_ms: int = 2000
     log_every_n: int = 30  # throttle the per-action log (~1/s at 30 Hz)
     dry_run: bool = True  # log only; no motor command is published
+    # Wait this long after start before the first inference, giving the arms time
+    # to slew to G1ArmSdkConnection.initial_arm_pose first (mirrors eval_g1.py's
+    # "move to start pose, sleep, then loop"). 0 = start inferring immediately.
+    startup_delay_s: float = 0.0
 
 
 class ActBridge(Module):
@@ -73,13 +86,16 @@ class ActBridge(Module):
 
     color_image: In[Image]
     motor_states: In[JointState]
-    arm_target: Out[JointState]  # 14 arm targets -> G1ArmSdkConnection (Stage 2)
+    right_gripper_state: In[JointState]  # measured right Dex1 q (position[0])
+    arm_target: Out[JointState]          # 14 arm targets -> G1ArmSdkConnection
+    gripper_target: Out[JointState]      # right Dex1 target q (position[0]) -> gripper module
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._lock = threading.Lock()
         self._latest_image: Image | None = None
         self._latest_state: JointState | None = None
+        self._latest_gripper: float = 0.0  # measured right gripper q
         self._stop_event = threading.Event()
         self._thread: Thread | None = None
 
@@ -88,6 +104,9 @@ class ActBridge(Module):
         super().start()
         self.register_disposable(Disposable(self.color_image.subscribe(self._on_image)))
         self.register_disposable(Disposable(self.motor_states.subscribe(self._on_state)))
+        self.register_disposable(
+            Disposable(self.right_gripper_state.subscribe(self._on_gripper_state))
+        )
         self._stop_event.clear()
         self._thread = Thread(target=self._act_loop, daemon=True, name="act-bridge")
         self._thread.start()
@@ -114,12 +133,19 @@ class ActBridge(Module):
         with self._lock:
             self._latest_state = state
 
-    def _build_state(self, state: JointState) -> list[float] | None:
+    def _on_gripper_state(self, state: JointState) -> None:
+        pos = list(state.position)
+        if not pos:
+            return
+        with self._lock:
+            self._latest_gripper = float(pos[0])
+
+    def _build_state(self, state: JointState, right_grip: float) -> list[float] | None:
         """Assemble the 16-dim policy state from a 29-DOF G1 JointState.
 
         Arms are sliced by the canonical index range (left 15-21, right 22-28),
-        verified against joint names. Grippers are 0.0 in dry-run (real Dex1
-        state wiring is Stage 2).
+        verified against joint names. state[14] (left gripper) is the training
+        constant 0.0; state[15] is the measured right Dex1 q.
         """
         pos = list(state.position)
         if len(pos) < _ARM_START + _NUM_ARM:
@@ -134,7 +160,7 @@ class ActBridge(Module):
                     f"expected ...{_ARM_JOINT_NAMES[0]}; check joint ordering"
                 )
         arms = pos[_ARM_START : _ARM_START + _NUM_ARM]
-        grippers = [0.0, 0.0]  # dry-run; replace with rt/dex1 state in Stage 2
+        grippers = [0.0, float(right_grip)]  # [left=const 0, right=measured Dex1 q]
         return [float(x) for x in arms] + grippers
 
     def _act_loop(self) -> None:
@@ -149,6 +175,13 @@ class ActBridge(Module):
         sock.setsockopt(zmq.LINGER, 0)
         sock.connect(self.config.act_endpoint)
 
+        if self.config.startup_delay_s > 0:
+            logger.info(
+                f"ActBridge: holding inference {self.config.startup_delay_s}s "
+                "while the arms slew to the start pose"
+            )
+            self._stop_event.wait(self.config.startup_delay_s)
+
         period = 1.0 / float(self.config.rate_hz)
         first = True
         count = 0
@@ -158,9 +191,10 @@ class ActBridge(Module):
             with self._lock:
                 image = self._latest_image
                 state = self._latest_state
+                right_grip = self._latest_gripper
 
             if image is not None and state is not None:
-                state16 = self._build_state(state)
+                state16 = self._build_state(state, right_grip)
                 if state16 is not None:
                     bgr = image.to_opencv()
                     ok, jpeg = cv2.imencode(".jpg", bgr)
@@ -196,21 +230,34 @@ class ActBridge(Module):
         sock.close()
 
     def _handle_action(self, action: Any, count: int) -> None:
-        """Publish the 14 arm targets (Stage 2) and/or log. Grippers not driven yet."""
+        """Publish the 14 arm targets + right gripper target (or log only in dry-run)."""
         arms = action[:_NUM_ARM]
+        right_grip = float(action[_RIGHT_GRIP_IDX])
         if not self.config.dry_run:
-            js = JointState(
-                name=list(_ARM_JOINT_NAMES),
-                position=[float(x) for x in arms[:_NUM_ARM]],
-                velocity=[0.0] * _NUM_ARM,
-                effort=[0.0] * _NUM_ARM,
+            self.arm_target.publish(
+                JointState(
+                    name=list(_ARM_JOINT_NAMES),
+                    position=[float(x) for x in arms[:_NUM_ARM]],
+                    velocity=[0.0] * _NUM_ARM,
+                    effort=[0.0] * _NUM_ARM,
+                )
             )
-            self.arm_target.publish(js)
+            # action[14] (left gripper) is dropped — only the right Dex1 is installed.
+            self.gripper_target.publish(
+                JointState(
+                    name=[_RIGHT_GRIPPER_JOINT],
+                    position=[right_grip],
+                    velocity=[0.0],
+                    effort=[0.0],
+                )
+            )
         if count % self.config.log_every_n == 1:
             grip = action[_NUM_ARM:_STATE_DIM]
-            pairs = ", ".join(f"{n.split('/')[-1]}={v:.3f}" for n, v in zip(_ARM_JOINT_NAMES, arms))
-            tag = "dry-run" if self.config.dry_run else "LIVE→arm_sdk"
-            logger.info(f"[{tag}] ACT action #{count}: {pairs} | grip={grip}")
+            pairs = ", ".join(
+                f"{n.split('/')[-1]}={v:.3f}" for n, v in zip(_ARM_JOINT_NAMES, arms, strict=False)
+            )
+            tag = "dry-run" if self.config.dry_run else "LIVE→arm_sdk+dex1"
+            logger.info(f"[{tag}] ACT action #{count}: {pairs} | grip(L,R)={grip}")
 
 
 __all__ = ["ActBridge", "ActBridgeConfig"]
