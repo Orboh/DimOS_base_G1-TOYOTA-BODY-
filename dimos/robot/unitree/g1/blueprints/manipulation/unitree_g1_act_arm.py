@@ -35,7 +35,7 @@ on); set ``DIMOS_CAMERA_SOURCE=zmq`` to fall back to the GEAR-SONIC publisher.
 
 Run (in order):
     # NX:      teleimager-server --rs              (head frames on :55555)
-    # laptop:  ~/act-okura/.venv_act/bin/python ~/act-okura/act_service.py --serve
+    # laptop:  ~/act-okura/.venv_act/bin/python scripts/act_service.py --serve
     # laptop:  ROBOT_INTERFACE=<nic> .venv/bin/dimos run unitree-g1-act-arm
 """
 
