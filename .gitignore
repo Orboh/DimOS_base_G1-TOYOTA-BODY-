@@ -130,3 +130,9 @@ seat_finder_debug/
 *_debug/
 *_detected.jpg
 *_input.jpg
+
+# --- LangGraph Studio (`langgraph dev`) local persistence cache ---
+.langgraph_api/
+
+# --- UMI diffusion policy checkpoints (multi-GB .ckpt; never commit) ---
+/Diffusion model/

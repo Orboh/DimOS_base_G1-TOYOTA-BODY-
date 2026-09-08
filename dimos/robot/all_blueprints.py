@@ -87,6 +87,7 @@ all_blueprints = {
 all_modules = {
     "act-bridge": "dimos.robot.unitree.g1.act.act_bridge.ActBridge",
     "b-box-navigation-module": "dimos.navigation.bbox_navigation.BBoxNavigationModule",
+    "basket-deposit-bridge": "dimos.robot.unitree.g1.act.basket_deposit_bridge.BasketDepositBridge",
     "camera-module": "dimos.hardware.sensors.camera.module.CameraModule",
     "cartesian-motion-controller": "dimos.manipulation.control.servo_control.cartesian_motion_controller.CartesianMotionController",
     "control-coordinator": "dimos.control.coordinator.ControlCoordinator",

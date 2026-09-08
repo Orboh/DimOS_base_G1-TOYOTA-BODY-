@@ -156,6 +156,14 @@ class HarvestConfig:
     max_reposition_attempts: int = 3  # base moves toward one okra before skipping it
     max_revisits: int = 5  # times to go back for left-behind okra before giving up
 
+    # §6 HMI: for a node whose spoken announcement describes an upcoming physical
+    # move (grasp / base motion / basket swap), wait this long [s] after speaking
+    # before issuing the action, so the human hears "what" before "it happens"
+    # (the G1 speaker queues audio and returns immediately — without this wait the
+    # move can start before, or while, the phrase is still being synthesised).
+    # 0.0 (default) = no wait, unchanged behaviour (also keeps unit tests fast).
+    voice_lead_s: float = 0.0
+
 
 class HarvestState(TypedDict, total=False):
     """LangGraph state = the handbook's §3 blackboard.

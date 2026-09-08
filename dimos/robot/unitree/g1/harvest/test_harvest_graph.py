@@ -29,6 +29,8 @@ to discover a fruit out of view.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from dimos.robot.unitree.g1.harvest import announce
 from dimos.robot.unitree.g1.harvest.announce import RecordingAnnouncer
 from dimos.robot.unitree.g1.harvest.blackboard import HarvestConfig, initial_state
@@ -220,7 +222,12 @@ def test_visits_multiple_stations() -> None:
     assert final["picks"] == 2  # one okra from each station
     assert skills.station_moves == [1]  # moved to station 1 exactly once
     assert final["station_id"] == 1
+    # Two-part announcement (§6 HMI): "this station is done" is true either way
+    # so it is said BEFORE the move; "moving to the next one" only once
+    # go_to_next_station() confirms one exists, so it is said after.
+    assert announce.station_done() in voice.said
     assert announce.next_station() in voice.said
+    assert voice.said.index(announce.station_done()) < voice.said.index(announce.next_station())
 
 
 def test_basket_full_swaps_then_continues() -> None:
@@ -248,3 +255,50 @@ def test_silent_by_default() -> None:
     final = _run(skills)  # no announcer passed
 
     assert final["picks"] == 1
+
+
+def test_voice_lead_s_waits_after_speaking_before_moving() -> None:
+    """voice_lead_s>0: the robot pauses after speaking, before it physically
+    moves — so an announcement is always heard before the action it describes
+    (§6 HMI; the real G1 speaker queues audio and returns immediately)."""
+    config = HarvestConfig(voice_lead_s=2.0)
+    field = [FieldOkra("far", x=0.275, y=0.85, z=0.80, ripeness=0.9)]  # too far -> reposition
+    skills = _mock(field)
+    voice = RecordingAnnouncer()
+    app = build_harvest_graph(skills, config, announcer=voice)
+    with patch("dimos.robot.unitree.g1.harvest.graph.time.sleep") as mock_sleep:
+        app.invoke(initial_state(), {"recursion_limit": _RECURSION_LIMIT})
+
+    assert announce.approaching("forward") in voice.said
+    assert mock_sleep.call_count >= 1  # reposition + grasp both wait
+    assert all(call.args[0] == 2.0 for call in mock_sleep.call_args_list)
+
+
+def test_voice_lead_s_defaults_to_no_wait() -> None:
+    """voice_lead_s defaults to 0.0 — existing behaviour/tests are unaffected."""
+    field = [FieldOkra("a", x=0.30, y=0.45, z=0.80, ripeness=0.9)]
+    skills = _mock(field)
+    voice = RecordingAnnouncer()
+    app = build_harvest_graph(skills, _CFG, announcer=voice)  # _CFG: voice_lead_s=0.0
+    with patch("dimos.robot.unitree.g1.harvest.graph.time.sleep") as mock_sleep:
+        app.invoke(initial_state(), {"recursion_limit": _RECURSION_LIMIT})
+
+    mock_sleep.assert_not_called()
+
+
+def test_advance_left_waits_only_on_its_one_announcement() -> None:
+    """searching() is announced once per dry spell (not every sweep step), so the
+    voice_lead_s wait should likewise fire only on that first sweep, not once per
+    subsequent sweep step."""
+    config = HarvestConfig(voice_lead_s=2.0, max_empty_advances=3)
+    skills = _mock([])  # empty field: sweeps up to the cap, then gives up on the station
+    voice = RecordingAnnouncer()
+    app = build_harvest_graph(skills, config, announcer=voice)
+    with patch("dimos.robot.unitree.g1.harvest.graph.time.sleep") as mock_sleep:
+        app.invoke(initial_state(), {"recursion_limit": _RECURSION_LIMIT})
+
+    assert len(skills.move_calls) == 3  # three advance_left sweeps (the cap)
+    assert voice.said.count(announce.searching()) == 1  # announced only on the first
+    # One wait for searching() (first sweep only) + one for station_done()
+    # (next_station, unconditional) — NOT one per sweep (that would be 3+).
+    assert mock_sleep.call_count == 2

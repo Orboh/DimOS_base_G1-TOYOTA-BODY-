@@ -149,8 +149,15 @@ def safety_resume() -> str:
     return "安全を確認しました。作業を再開します。"
 
 
+def station_done() -> str:
+    """Said BEFORE ``go_to_next_station()`` runs — true regardless of the outcome
+    (unlike :func:`next_station`, which presumes another station exists)."""
+    return "この場所は採り終わりました。"
+
+
 def next_station() -> str:
-    return "この場所は採り終わりました。次の収穫場所に移動します。"
+    """Said AFTER ``go_to_next_station()`` confirms another station exists."""
+    return "次の収穫場所に移動します。"
 
 
 def basket_swap() -> str:
@@ -175,6 +182,22 @@ def verify_fail() -> str:
     return "うまくつかめていません。もう一度試みます。"
 
 
+def reach_fail() -> str:
+    return "オクラに手が届きませんでした。"
+
+
+def cutting() -> str:
+    return "切断します。"
+
+
+def basket_depositing() -> str:
+    return "オクラをポケットに入れます。"
+
+
+def basket_deposited() -> str:
+    return "収納が完了しました。"
+
+
 def ripeness_skip(count: int) -> str:
     return f"熟していないオクラが{count}個あります。飛ばします。"
 
@@ -189,13 +212,17 @@ __all__ = [
     "NullAnnouncer",
     "RecordingAnnouncer",
     "approaching",
+    "basket_deposited",
+    "basket_depositing",
     "basket_swap",
+    "cutting",
     "detect_result",
     "done",
     "give_up",
     "grasping",
     "next_station",
     "picked",
+    "reach_fail",
     "regrasp",
     "revisiting",
     "ripeness_skip",
@@ -204,6 +231,7 @@ __all__ = [
     "searching",
     "skip_height",
     "start",
+    "station_done",
     "verify_fail",
     "verify_ok",
 ]

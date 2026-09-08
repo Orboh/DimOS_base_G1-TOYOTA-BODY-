@@ -61,6 +61,7 @@ background safety interrupt.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -139,6 +140,19 @@ def build_harvest_graph(
         for okra_id in ids:
             pending.pop(okra_id, None)
         return pending
+
+    def _wait_after_voice() -> None:
+        """§6 HMI: pause after speaking, before the action the phrase described.
+
+        The G1 speaker (``G1SpeakerAnnouncer.say``) enqueues audio and returns
+        immediately — the harvest loop does not block on playback. Without this
+        wait, a node that speaks and then immediately acts (moves the base,
+        drives the arm) can visibly move before, or while, the phrase is still
+        being synthesised, so the announcement no longer matches what the robot
+        is doing. ``cfg.voice_lead_s`` (default 0.0 — no wait) sets the delay.
+        """
+        if cfg.voice_lead_s > 0:
+            time.sleep(cfg.voice_lead_s)
 
     # Nodes
 
@@ -256,12 +270,18 @@ def build_harvest_graph(
         )
 
     def grasp(state: HarvestState) -> HarvestState:
-        """Phase 5: reach + grasp the target (okra-ACT on the real robot)."""
+        """Phase 5: reach + grasp the target (okra-ACT on the real robot).
+
+        The "grasping now" phrase is spoken by SELECT (first attempt) or here
+        via ``regrasp()`` (retry); either way, wait for it (§6 HMI,
+        ``cfg.voice_lead_s``) before the arm actually moves.
+        """
         gate.checkpoint()  # §6: do not start a grasp while paused for safety
         target = find_okra(state, state.get("target_id"))
         attempts = state.get("grasp_attempts", 0) + 1
         if attempts > 1:
             voice.say(announce.regrasp())
+        _wait_after_voice()
         if target is not None:
             skills.grasp_okra(target, cfg.grasp_force)
         return HarvestState(
@@ -343,9 +363,9 @@ def build_harvest_graph(
         # Ridge safety: never command a forward move that would bring the target
         # closer than the standoff minimum.
         forward = min(forward, approach.pos_3d.get("y", 0.0) - cfg.standoff_min)
-        skills.relative_move(lateral, forward)
-        new_offset = _moved(state, lateral, forward)
-        # Announce the dominant direction of the move (depth wins ties).
+        # Announce the dominant direction of the move (depth wins ties) BEFORE
+        # actually moving (§6 HMI) — the direction only depends on the computed
+        # (lateral, forward), not on having moved yet.
         if abs(forward) >= abs(lateral) and abs(forward) > 1e-9:
             direction = "forward" if forward > 0 else "back"
         elif abs(lateral) > 1e-9:
@@ -353,6 +373,9 @@ def build_harvest_graph(
         else:
             direction = "forward"
         voice.say(announce.approaching(direction))
+        _wait_after_voice()
+        skills.relative_move(lateral, forward)
+        new_offset = _moved(state, lateral, forward)
         return HarvestState(
             reposition_attempts=attempts,
             robot_offset=new_offset,
@@ -370,10 +393,11 @@ def build_harvest_graph(
         moves in the -x (left) direction by ``advance_step``.
         """
         gate.checkpoint()  # §6
-        skills.relative_move(-cfg.advance_step, 0.0)
         empty = state.get("empty_advances", 0) + 1
         if empty == 1:  # announce once per dry spell, not every sweep step
             voice.say(announce.searching())
+            _wait_after_voice()
+        skills.relative_move(-cfg.advance_step, 0.0)
         return HarvestState(
             empty_advances=empty,
             reposition_attempts=0,
@@ -412,8 +436,9 @@ def build_harvest_graph(
         lateral = rel_x - cfg.reach.x_center
         forward = rel_y - cfg.reach.y_center
         forward = min(forward, rel_y - cfg.standoff_min)  # ridge safety
-        skills.relative_move(lateral, forward)
         voice.say(announce.revisiting())
+        _wait_after_voice()
+        skills.relative_move(lateral, forward)
         return HarvestState(
             revisit_attempts=attempts,
             robot_offset=_moved(state, lateral, forward),
@@ -431,8 +456,15 @@ def build_harvest_graph(
         If a new station is reached, reset the per-station memory (odometry,
         pending, exclusions, sweep counters) and resume detecting there. If the
         whole field is done, flag it so routing ends the run.
+
+        Two-part announcement (§6 HMI): "this station is done" is true either
+        way, so it is said BEFORE moving; "moving to the next one" is only true
+        once ``go_to_next_station()`` confirms one exists, so it is said after
+        (no move to announce if the field is done — ``finish`` covers that).
         """
         gate.checkpoint()  # §6
+        voice.say(announce.station_done())
+        _wait_after_voice()
         moved = skills.go_to_next_station()
         if not moved:
             return HarvestState(
@@ -459,8 +491,9 @@ def build_harvest_graph(
     def swap_basket(state: HarvestState) -> HarvestState:
         """§7: basket full — transport it and swap in an empty one, then resume."""
         gate.checkpoint()  # §6
-        skills.swap_basket()
         voice.say(announce.basket_swap())
+        _wait_after_voice()
+        skills.swap_basket()
         return HarvestState(
             basket_count=0,
             basket_full=False,
