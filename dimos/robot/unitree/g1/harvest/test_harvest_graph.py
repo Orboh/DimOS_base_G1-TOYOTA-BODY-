@@ -38,7 +38,7 @@ from dimos.robot.unitree.g1.harvest.graph import build_harvest_graph
 from dimos.robot.unitree.g1.harvest.skills import FieldOkra, MockHarvestSkills
 
 _RECURSION_LIMIT = 400
-_CFG = HarvestConfig()  # reach x[-0.20,0.75] y[0.05,0.65] z[-0.35,0.85]; centre (0.275, 0.35)
+_CFG = HarvestConfig()  # reach x[-0.20,0.61] y[0.05,0.65] z[-0.35,0.85]; centre (0.205, 0.35)
 
 
 def _run(skills: MockHarvestSkills, config: HarvestConfig | None = None) -> dict:
@@ -75,7 +75,7 @@ def test_in_reach_okra_is_picked_immediately() -> None:
 
 def test_too_far_okra_triggers_forward_then_pick() -> None:
     """An okra beyond the reach box (too far) → move FORWARD → pick."""
-    field = [FieldOkra("far", x=0.275, y=0.85, z=0.80, ripeness=0.9)]
+    field = [FieldOkra("far", x=_CFG.reach.x_center, y=0.85, z=0.80, ripeness=0.9)]
     skills = _mock(field)
     final = _run(skills)
 
@@ -88,7 +88,7 @@ def test_too_far_okra_triggers_forward_then_pick() -> None:
 
 def test_too_close_okra_triggers_backup_then_pick() -> None:
     """An okra closer than the reach box (ridge risk) → move BACK → pick."""
-    field = [FieldOkra("near", x=0.275, y=0.02, z=0.80, ripeness=0.9)]
+    field = [FieldOkra("near", x=_CFG.reach.x_center, y=0.02, z=0.80, ripeness=0.9)]
     skills = _mock(field)
     final = _run(skills)
 
@@ -262,7 +262,9 @@ def test_voice_lead_s_waits_after_speaking_before_moving() -> None:
     moves — so an announcement is always heard before the action it describes
     (§6 HMI; the real G1 speaker queues audio and returns immediately)."""
     config = HarvestConfig(voice_lead_s=2.0)
-    field = [FieldOkra("far", x=0.275, y=0.85, z=0.80, ripeness=0.9)]  # too far -> reposition
+    field = [
+        FieldOkra("far", x=config.reach.x_center, y=0.85, z=0.80, ripeness=0.9)
+    ]  # too far -> reposition
     skills = _mock(field)
     voice = RecordingAnnouncer()
     app = build_harvest_graph(skills, config, announcer=voice)

@@ -1102,7 +1102,9 @@ def main() -> None:
                     # ik_approach.py 側の事前フィルタとして変更していない
                     # （このグリッド計算も同じ ws_x/y/z の中で solve() するだけ）。
                     _rx0, _rx1 = (float(v) for v in os.getenv("SIM_REACH_X", "0.05,0.65").split(","))
-                    _ry0, _ry1 = (float(v) for v in os.getenv("SIM_REACH_Y", "-0.75,0.20").split(","))
+                    # 既定 -0.61 (旧-0.75): ik_approach.py の ws_y 既定と同期
+                    # （2026-09-12 ユーザー指摘・実測に基づく変更、数値ドリフト防止）。
+                    _ry0, _ry1 = (float(v) for v in os.getenv("SIM_REACH_Y", "-0.61,0.20").split(","))
                     # z既定 0.0〜0.5: 胸カメラの実垂直視野角(HD720実機HFOV=82°相当,
                     # vfov≈52°)で実際にカバーされる高さに合わせた可視化専用の範囲
                     # （ik_approach.py 本体の ws_z=[-0.35,0.85] とは別、後者は変更なし）。
