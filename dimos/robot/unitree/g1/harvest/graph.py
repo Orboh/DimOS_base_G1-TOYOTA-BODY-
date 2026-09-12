@@ -77,6 +77,9 @@ from dimos.robot.unitree.g1.harvest.blackboard import (
 )
 from dimos.robot.unitree.g1.harvest.safety import NullSafetyGate, SafetyGate
 from dimos.robot.unitree.g1.harvest.skills import HarvestSkills
+from dimos.utils.logging_config import setup_logger
+
+logger = setup_logger()
 
 # Node names (also used as routing targets) — kept as constants to avoid typos.
 DETECT = "detect"
@@ -511,16 +514,32 @@ def build_harvest_graph(
     # Routers: the conditional edges
 
     def route_after_select(state: HarvestState) -> str:
+        # ★一時デバッグ計装（2026-09-12）: 「picks=1でadvance_leftが一度も
+        # 発火せずNEXT_STATIONへ直行する」という未解明の不具合を追うため、
+        # ルーティング判断に使う全フィールドを可視化する。原因判明後は削除する。
+        _dec_dbg = (
+            f"[route_after_select] iterations={state.get('iterations', 0)}/"
+            f"{cfg.max_harvest_iterations} target_id={state.get('target_id')!r} "
+            f"approach_id={state.get('approach_id')!r} "
+            f"empty_advances={state.get('empty_advances', 0)}/{cfg.max_empty_advances} "
+            f"pending={list(state.get('pending', {}).keys())}"
+        )
         if state.get("iterations", 0) >= cfg.max_harvest_iterations:
+            logger.info(f"{_dec_dbg} -> FINISH(iterations cap)")
             return FINISH
         if state.get("target_id"):
+            logger.info(f"{_dec_dbg} -> GRASP")
             return GRASP
         if state.get("approach_id"):
+            logger.info(f"{_dec_dbg} -> REPOSITION")
             return REPOSITION
         if state.get("empty_advances", 0) < cfg.max_empty_advances:
+            logger.info(f"{_dec_dbg} -> ADVANCE_LEFT")
             return ADVANCE_LEFT  # §5: sweep left (right→left harvest) to look for more
         if state.get("pending"):
+            logger.info(f"{_dec_dbg} -> REVISIT")
             return REVISIT  # §5: swept enough — go back for okra we passed
+        logger.info(f"{_dec_dbg} -> NEXT_STATION")
         return NEXT_STATION  # §Phase 1: station done → move to the next one
 
     def route_after_verify(state: HarvestState) -> str:

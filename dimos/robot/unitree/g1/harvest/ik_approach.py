@@ -41,6 +41,19 @@ grasp ノードから「呼ぶ → 結果が返る → 次へ」で使える（D
   reach box（select の事前フィルタ）とは別に、**本スキルが None を返したら「届かない」**
   とみなして次の候補へフォールバックする。収束しない / 関節デルタ過大 / 関節リミット
   違反 / ワークスペース外 はいずれも None。
+
+アプローチ経路（``solve_legs``/``stream_legs`` の ``above_m``/``front_m``）:
+  ``above_m>0`` = 上から降りる（LIFT→TRANSIT→DESCEND、``IkReachBridge._reach`` から
+  移植）。``front_m>0`` = 先に対象の高さ(Z)と左右位置(Y)を合わせてから、奥行き
+  (X)方向へまっすぐ押し込む（align→push）。両方>0なら above を優先。
+  2026-09-11、sim比較用に ``IkReachBridge`` にしか無かった front approach を
+  移植したが、当初の移植は「対象の手前へ斜めに直線移動→+X押し込み」で高さと
+  水平が同時に動いてしまい意図と異なっていた。2026-09-12 に「先に高さ(Z)だけ
+  合わせる→その高さのまま水平(X,Y)に伸ばす」へ一度修正したが、対象のYが
+  現在の手先Yと違うと②の水平移動がX,Y同時の斜め移動になり、グリッパーが
+  対象に正対せず挿入できない問題が残っていた（ユーザー指摘）。同日中に
+  「①高さ(Z)と左右(Y)を先に合わせる→②奥行き(X)だけをまっすぐ進める」の
+  現行版へ再修正した（``docs/sim-setup/compare_ik_approach.py`` 参照）。
 """
 
 from __future__ import annotations
@@ -135,6 +148,19 @@ class IkApproachSkill:
         from dimos.control.components import make_humanoid_joints
 
         return list(make_humanoid_joints("g1"))[_ARM_START : _ARM_START + _NUM_ARM]
+
+    def tip_torso(self, q_right: Any) -> list[float]:
+        """右腕7関節角 → 現在の手先(tip)の torso_link 座標 [m]。
+
+        内部の FK 計算（``solve_legs``/``stream_legs`` が above/front の起点に使う
+        のと同じもの）を公開したヘルパー。ログ/可視化/sim比較用途（例:
+        ``docs/sim-setup/compare_ik_approach.py`` が ``stream_legs`` の
+        ``on_waypoint`` コールバックで受け取った ``arm14`` から手先の実軌跡を
+        再構成するのに使う）。制御ロジック自体はこれを使わない。
+        """
+        q = np.asarray(q_right, dtype=float).flatten()
+        pos = np.asarray(self._arm.root_to_torso_pose(self._arm.fk_tip(q)).translation).flatten()
+        return [float(x) for x in pos]
 
     def _clamp_violation_detail(self, q_sol: np.ndarray) -> str:
         """``clamp_ok`` 失敗時、どの関節がどれだけ限界を超えたかを1行で返す（デバッグ用）。"""
@@ -245,12 +271,18 @@ class IkApproachSkill:
         )
 
     def solve_legs(
-        self, target_torso: Any, measured_position: Any, *, above_m: float = 0.0
+        self,
+        target_torso: Any,
+        measured_position: Any,
+        *,
+        above_m: float = 0.0,
+        front_m: float = 0.0,
     ) -> list[IkApproachResult] | None:
         """複数waypointの段階的アプローチ版 ``solve()``。
 
-        ``above_m <= 0``（既定）: ``solve()`` 単体と同じ、1要素のリスト ``[result]``
-        を返す（後方互換 — 呼び出し側は常にリストとして扱ってよい）。
+        ``above_m <= 0`` かつ ``front_m <= 0``（既定）: ``solve()`` 単体と同じ、
+        1要素のリスト ``[result]`` を返す（後方互換 — 呼び出し側は常にリストとして
+        扱ってよい）。
 
         ``above_m > 0``: ``IkReachBridge._reach`` の approach-from-above と同じ
         「① LIFT: 現在の手先 x,y のまま真上へ ② TRANSIT: 対象の真上（高度を保持）へ
@@ -261,10 +293,23 @@ class IkApproachSkill:
         にした個別の position-only IK 解であり、``IkReachBridge`` のような密な
         Cartesian ストリーミングではない（レグの端点だけを直線的につなぐ簡易版）。
 
+        ``front_m > 0``（``above_m<=0`` の場合のみ有効 — 両方>0なら above を優先）:
+        「① ALIGN: 現在の手先 x（奥行き）のまま対象の高さ(z)と左右位置(y)へ
+        同時に合わせる ② PUSH: その位置から奥行き(+x)方向だけへまっすぐ押し込む」
+        の2レグで解く。above の「一旦持ち上げてから水平移動→垂直降下」とは違い、
+        「先に位置(y,z)を合わせてから奥行きに正対して押し込む」ため、上から
+        株へ降りない・横から払わないだけでなく、②が純粋な直線移動になり
+        グリッパーが対象へ正面から（斜めにならず）挿入される。
+        （2026-09-12、ユーザー指摘により2段階で修正: 当初「対象の手前へ斜め移動
+        →+X押し込み」→「①高さのみ合わせる→②水平(x,y)に伸ばす」に直したが、
+        対象のyが現在の手先yと違うと②が斜め移動になりグリッパーが正対しない
+        問題が残っていたため、①でy,zを両方合わせる現行版へ再修正）。
+        front_m の具体的な値は経路形状には使わない（``>0`` で本モードを有効化するだけ）。
+
         いずれかのレグが届かない/解けない場合は全体を ``None``（「届かない」）として
         扱う — 一部のレグだけ実行して中断すると、手先が中途半端な高さで止まり危険。
         """
-        if above_m <= 0.0:
+        if above_m <= 0.0 and front_m <= 0.0:
             res = self.solve(target_torso, measured_position)
             return [res] if res is not None else None
 
@@ -275,7 +320,7 @@ class IkApproachSkill:
             get_worst_joint_delta,
         )
 
-        legs = self._legs_torso(target_torso, measured_position, above_m)
+        legs = self._legs_torso(target_torso, measured_position, above_m, front_m)
         if legs is None:
             return None
         legs_torso, q_left, q_right, rot = legs
@@ -324,13 +369,19 @@ class IkApproachSkill:
         return results
 
     def _legs_torso(
-        self, target_torso: Any, measured_position: Any, above_m: float
+        self,
+        target_torso: Any,
+        measured_position: Any,
+        above_m: float,
+        front_m: float = 0.0,
     ) -> tuple[list[tuple[str, np.ndarray]], np.ndarray, np.ndarray, np.ndarray] | None:
         """``solve_legs``/``stream_legs`` 共通: torso座標系のレグ端点リストと
         ``(q_left, q_right, rot)`` を計算する。届かない/計測なしなら ``None``。
 
-        ``above_m <= 0`` でも「direct」1レグのリストを返す（``stream_legs`` が
-        アプローチ高さ無しでも同じ密ストリーミング経路を使えるように）。
+        ``above_m`` と ``front_m`` がともに ``<= 0`` でも「direct」1レグのリストを
+        返す（``stream_legs`` がアプローチ高さ/前進距離無しでも同じ密ストリーミング
+        経路を使えるように）。両方 ``> 0`` なら ``above`` を優先する
+        （``IkReachBridge._reach`` と同じ規約）。
         """
         import pinocchio
 
@@ -363,15 +414,33 @@ class IkApproachSkill:
             rot = self._arm.fk_root(q_right).rotation
 
         legs_torso: list[tuple[str, np.ndarray]] = []
-        if above_m > 0.0:
+        if above_m > 0.0 or front_m > 0.0:
             tip_now = np.asarray(
                 self._arm.root_to_torso_pose(self._arm.fk_tip(q_right)).translation
             ).flatten()
+        if above_m > 0.0:
             z_transit = max(float(p_final[2]) + float(above_m), float(tip_now[2]))
             if float(tip_now[2]) < z_transit - 0.02:
                 legs_torso.append(("lift", np.array([tip_now[0], tip_now[1], z_transit])))
             legs_torso.append(("transit", np.array([p_final[0], p_final[1], z_transit])))
             legs_torso.append(("descend", p_final))
+        elif front_m > 0.0:
+            # 正面アプローチ（2026-09-12 再修正）: ① 今の手先 X（奥行き）はそのまま、
+            # 対象の高さ(Z)と左右位置(Y)を同時に合わせる(align) ② そこから奥行き
+            # (+X)方向へ「まっすぐ」対象へ押し込む(push)。
+            #
+            # ⚠️ 最初の修正（2026-09-12午前）では①を「高さ(Z)のみ」合わせ、Y,Xは
+            # ②でまとめて動かしていた。これだと対象のYが今の手先Yと違う場合、②が
+            # X,Y同時の斜め移動になり、グリッパーが正面からまっすぐ刺さらず対象を
+            # 挟めない（ユーザー指摘: 「対象に対してグリッパーが正面から刺さらないと
+            # 収穫できない」）。①で高さとY（左右）を先に合わせきることで、②は
+            # 純粋に奥行き(X)だけの直線移動になり、ジョーが対象に正対したまま
+            # まっすぐ挿入される。above が「一旦持ち上げて→水平移動→垂直降下」
+            # なのに対し、front は「先に位置(Y,Z)を合わせる→奥行きに正対して押し
+            # 込む」。front_m の具体的な値は経路形状には使わない（>0 で本モードを
+            # 有効化するだけ）。
+            legs_torso.append(("align", np.array([tip_now[0], p_final[1], p_final[2]])))
+            legs_torso.append(("push", p_final))
         else:
             legs_torso.append(("direct", p_final))
 
@@ -383,7 +452,9 @@ class IkApproachSkill:
         measured_position: Any,
         *,
         above_m: float = 0.0,
+        front_m: float = 0.0,
         send_arm: Callable[[list[float]], None],
+        on_waypoint: Callable[[str, list[float], list[float]], None] | None = None,
         sleep_fn: Callable[[float], None] = time.sleep,
         step_m: float = 0.035,
         cadence_s: float = 0.18,
@@ -394,8 +465,15 @@ class IkApproachSkill:
         各レグの区間を ``step_m``[m] 間隔の waypoint に分割し、waypoint ごとに個別へ
         IK を再計算しながら ``send_arm(arm14)`` で逐次 publish、``cadence_s``[s] ごとに
         ``sleep_fn`` で待つ（tip speed ≈ step_m/cadence_s）。手先が実際にほぼ直線を描く
-        — クリック駆動版(``IkReachBridge``)の動きに近い。``above_m<=0`` でも「direct」
-        1区間の密ストリーミングとして動く。
+        — クリック駆動版(``IkReachBridge``)の動きに近い。``above_m`` と ``front_m`` が
+        ともに ``<=0`` でも「direct」1区間の密ストリーミングとして動く。両方 ``>0``
+        なら ``above`` を優先する（``_legs_torso`` と同じ規約）。
+
+        Args:
+            on_waypoint: ``(leg_label, p_torso_xyz, arm14) -> None``。各waypointの
+                送出直後に呼ばれる任意コールバック（ログ/可視化/比較用 — sim比較で
+                「above」と「front」の手先軌跡を記録して重ねるのに使う想定。
+                ``harvest_module.py`` 等の実運用呼び出しでは None のまま）。
 
         ⚠️ この関数は呼び出し中ブロックする（全waypoint分の ``sleep_fn`` を合計すると
         数秒かかる）。中断チェックは持たない — 呼び出し側で早期に止めたい場合は
@@ -410,7 +488,7 @@ class IkApproachSkill:
             ではない。ワークスペース逸脱などレアケースのみで、通常運用では起きない
             前提の設計）。
         """
-        legs = self._legs_torso(target_torso, measured_position, above_m)
+        legs = self._legs_torso(target_torso, measured_position, above_m, front_m)
         if legs is None:
             return None
         legs_torso, q_left, q_right, rot = legs
@@ -478,7 +556,10 @@ class IkApproachSkill:
                     )
                     return None
                 arm14 = np.concatenate([q_left, q_sol])
-                send_arm([float(x) for x in arm14])
+                arm14_list = [float(x) for x in arm14]
+                send_arm(arm14_list)
+                if on_waypoint is not None:
+                    on_waypoint(label, [float(x) for x in p_i], arm14_list)
                 q_cur = q_sol
                 last_err, last_converged = float(err), bool(converged)
                 sleep_fn(cadence)

@@ -139,6 +139,16 @@ class HarvestModuleConfig(ModuleConfig):
     # 考え方 — 低い休憩姿勢から一発で関節空間リーチすると、手先の実軌道が読めない弧を
     # 描き、株を払ったり不自然な軌道になったりすることが実機で確認されたため追加。
     ik_approach_above_m: float = 0.0
+    # LIVE + use_ik_grasp_sequence: IK 粗アプローチを「① align: 今の奥行き(X)のまま
+    # 対象の高さ(Z)と左右位置(Y)を同時に合わせる ② push: その位置から奥行き(X)方向へ
+    # まっすぐ押し込む」の2段階Cartesian経路にする[m]（IkApproachSkill.solve_legs/
+    # stream_legs の front_m 参照）。0（既定）= 使わない。above_m と front_m を
+    # 両方>0にすると ik_approach.py 側の規約により above が優先される。クリック
+    # 駆動版(IkReachBridge.approach_front_m)にのみあった方式を2026-09-11に
+    # IkApproachSkill へ移植し、2026-09-12のsim比較検証（above vs front）を経て
+    # unitree_g1_okra_honban.py が本番既定として採用（unitree_g1_okra_harvest_zed.py
+    # 側は above_m のまま残し、いつでも above 方式へ戻せるフォールバックにしている）。
+    ik_approach_front_m: float = 0.0
     # LIVE + use_ik_grasp_sequence: IK粗アプローチを IkApproachSkill.stream_legs（密な
     # Cartesianストリーミング、クリック駆動版 IkReachBridge._stream_leg と同じ密度）で
     # 実行する。False（既定）= solve_legs（レグの端点だけを解いて関節空間補間任せに
@@ -183,6 +193,13 @@ class HarvestModuleConfig(ModuleConfig):
     # 始まり、今何をしているか分からなくなる（HarvestConfig.voice_lead_s 参照）。
     # 0.0（既定）= 待たない（後方互換）。
     voice_lead_s: float = 0.0
+    # §5 sweep（HarvestConfig.advance_step/max_empty_advances のパススルー、既定
+    # None=HarvestConfigのデフォルト値のまま=後方互換）。sim検証で「10mくらい
+    # 移動できるか」等、広い探索範囲を試したい場合に env から上書きできるように
+    # する（2026-09-12 要望）。max_empty_advances を増やさないと、advance_step
+    # 間隔でオクラが見つからない距離が続くと REVISIT に切り替わり探索が止まる。
+    advance_step: float | None = None  # [m] 左sweep1回の移動量（既定 HarvestConfig 0.30m）
+    max_empty_advances: int | None = None  # 連続空振り上限（既定 HarvestConfig 2）
 
 
 class HarvestModule(Module):
@@ -648,6 +665,7 @@ class HarvestModule(Module):
                             target_torso,
                             list(state.position),
                             above_m=self.config.ik_approach_above_m,
+                            front_m=self.config.ik_approach_front_m,
                             send_arm=_send_arm14,
                             step_m=self.config.ik_stream_step_m,
                             cadence_s=self.config.ik_stream_cadence_s,
@@ -656,6 +674,7 @@ class HarvestModule(Module):
                         target_torso,
                         list(state.position),
                         above_m=self.config.ik_approach_above_m,
+                        front_m=self.config.ik_approach_front_m,
                     )
 
                 # 切断可否ゲート: verify_fn（moondream）を流用。未配線なら None=常許可。
@@ -738,9 +757,14 @@ class HarvestModule(Module):
             announcer=voice,
         )
         self._monitor.start()
+        _hcfg_kwargs: dict[str, Any] = {"voice_lead_s": self.config.voice_lead_s}
+        if self.config.advance_step is not None:
+            _hcfg_kwargs["advance_step"] = self.config.advance_step
+        if self.config.max_empty_advances is not None:
+            _hcfg_kwargs["max_empty_advances"] = self.config.max_empty_advances
         self._app = build_harvest_graph(
             skills,
-            HarvestConfig(voice_lead_s=self.config.voice_lead_s),
+            HarvestConfig(**_hcfg_kwargs),
             announcer=voice,
             safety=self._monitor.gate,
         )
