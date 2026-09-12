@@ -107,7 +107,16 @@ class IkApproachSkill:
         ws_z: tuple[float, float] = (-0.35, 0.85),  # [m]
         max_joint_delta_deg: float = 90.0,  # 一発リーチの関節デルタ上限 [deg]
         require_converged: bool = True,
-        max_reach_pos_err_m: float = 0.05,  # 許容残差 [m]
+        # 許容残差 [m]。旧既定0.05（5cm）は「莢の茎の間へ数mm精度で刃を入れる」
+        # 収穫作業に対して粗すぎた（2026-09-12 ユーザー指摘）。内部ソルバー
+        # 自体の収束判定は eps=1e-4（0.1mm、pinocchio_ik.py）と非常に厳しいため、
+        # converged=True の解は元々0.1mm級の精度がある。この閾値が効くのは
+        # 「100回反復しても収束しきらなかった（best-effort）」少数ケースのみ
+        # だが、旧既定5cmだとそのケースを丸ごと許容してしまい、ACTなし
+        # （no-ACT）構成では粗いIKの着地点がそのまま切断位置になっていた。
+        # 3mm（要求精度と同じ）に厳格化し、それ以上ズレる解は素直に reject
+        # （None＝「届かない」）して次の候補へフォールバックさせる。
+        max_reach_pos_err_m: float = 0.003,
         fixed_orientation_xyzw: list[float] | None = None,  # 空=現在のEE姿勢を保持
         nominal_speed_rad_s: float = 1.0,  # 待機推定の有効スルー速度 [rad/s]
         margin_s: float = 0.5,  # 追加の整定マージン [s]
